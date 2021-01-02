@@ -12,6 +12,9 @@ class VerilatorXMLToAST:
     def __init__(self, top_module_name, xml_filename):
         self.top_module_name = top_module_name
         self.xml_filename = xml_filename
+        # [0]: width, [1]: array_len, [2]: type
+        self.typetable = {}
+        self.used_vars = {}
     
     def name_format(self, name):
         s = name
@@ -37,8 +40,6 @@ class VerilatorXMLToAST:
         return {}
     
     def parse_typetable(self, tptbl):
-        # [0]: width, [1]: array_len, [2]: type
-        typedict = {}
         type_table = list(tptbl)
         tptbl_size = len(type_table)
         tptbl_handled = 0
@@ -47,15 +48,15 @@ class VerilatorXMLToAST:
         while tptbl_handled < tptbl_size:
             for t in type_table:
                 type_id = t.get("id")
-                if type_id in typedict:
+                if type_id in self.typetable:
                     continue
                 if t.tag == "unpackarraydtype" or t.tag == "packarraydtype":
                     # this type depends on a sub_dtype_id, which needs to be parsed
                     sub_dtype_id = t.get("sub_dtype_id")
-                    if not sub_dtype_id in typedict:
+                    if not sub_dtype_id in self.typetable:
                         #print(sub_dtype_id, "not found, continue")
                         continue
-                    sub_dtype = typedict[sub_dtype_id]
+                    sub_dtype = self.typetable[sub_dtype_id]
                     assert(sub_dtype[1] == 0) # the subtype must not be an array
                     r = list(t)
                     assert(len(r) == 1)
@@ -72,11 +73,11 @@ class VerilatorXMLToAST:
                     width = sub_dtype[0]
                     array_len = left - right + 1
                     if t.tag == "unpackarraydtype":
-                        typedict[type_id] = [width, array_len, sub_dtype[2]]
+                        self.typetable[type_id] = [width, array_len, sub_dtype[2]]
                     else:
-                        typedict[type_id] = [width*array_len, 0, sub_dtype[2]]
+                        self.typetable[type_id] = [width*array_len, 0, sub_dtype[2]]
                     tptbl_handled += 1
-                    #print(type_id, typedict[type_id])
+                    #print(type_id, self.typetable[type_id])
                 elif t.tag == "basicdtype":
                     type_type = t.get("name")
                     left = t.get("left")
@@ -90,46 +91,45 @@ class VerilatorXMLToAST:
                     assert(right == 0)
                     width = left - right + 1
                     array_len = 0 # 0 means it is not an array
-                    typedict[type_id] = [width, array_len, type_type]
+                    self.typetable[type_id] = [width, array_len, type_type]
                     tptbl_handled += 1
-                    #print(type_id, typedict[type_id])
+                    #print(type_id, self.typetable[type_id])
                 elif t.tag == "enumdtype":
                     type_type = "logic"
                     width = int(math.log2(len(list(t))-1)+1)
                     array_len = 0
-                    typedict[type_id] = [width, array_len, type_type]
+                    self.typetable[type_id] = [width, array_len, type_type]
                     tptbl_handled += 1
-                    #print(type_id, typedict[type_id])
+                    #print(type_id, self.typetable[type_id])
                 elif t.tag == "structdtype":
                     type_type = "logic"
                     width = 0
                     skip = False
                     for mem in list(t):
                         sub_dtype_id = mem.get("sub_dtype_id")
-                        if not sub_dtype_id in typedict:
+                        if not sub_dtype_id in self.typetable:
                             skip = True
                             #print(sub_dtype_id, "not found, continue")
                             break
-                        assert(typedict[sub_dtype_id][1] == 0) # subtype must not be an array
-                        width += typedict[sub_dtype_id][0]
+                        assert(self.typetable[sub_dtype_id][1] == 0) # subtype must not be an array
+                        width += self.typetable[sub_dtype_id][0]
                     if skip:
                         continue
                     array_len = 0
-                    typedict[type_id] = [width, array_len, type_type]
+                    self.typetable[type_id] = [width, array_len, type_type]
                     tptbl_handled += 1
-                    #print(type_id, typedict[type_id])
+                    #print(type_id, self.typetable[type_id])
                 elif t.tag == "refdtype":
                     sub_dtype_id = t.get("sub_dtype_id")
-                    if not sub_dtype_id in typedict:
+                    if not sub_dtype_id in self.typetable:
                         #print(sub_dtype_id, "not found, continue")
                         continue
-                    typedict[type_id] = typedict[sub_dtype_id]
+                    self.typetable[type_id] = self.typetable[sub_dtype_id]
                     tptbl_handled += 1
-                    #print(type_id, typedict[type_id])
+                    #print(type_id, self.typetable[type_id])
                 else:
                     #print(t.tag)
                     assert(0 and "meh")
-        return typedict
     
     def parse_elem(self, elem):
         method = "parse_elem_" + elem.tag
@@ -556,7 +556,7 @@ class VerilatorXMLToAST:
         return items
     
     
-    def parse_module(self, module, typetable, iface_vars, used_vars):
+    def parse_module(self, module, iface_vars):
         params = []
         ports = []
         items = []
@@ -565,12 +565,12 @@ class VerilatorXMLToAST:
         params.append(vast.Parameter("ASSERT_ON", vast.Constant("1'b1")))
     
         for var in module.findall("var"):
-            if not self.name_format(var.get("name")) in used_vars:
+            if not self.name_format(var.get("name")) in self.used_vars:
                 continue
     
             var_name = self.name_format(var.get("name"))
             var_type_id = var.get("dtype_id")
-            var_type = typetable[var_type_id]
+            var_type = self.typetable[var_type_id]
             var_type_name = var_type[2]
             var_type_width = var_type[0]
             assert(var_type_width > 0)
@@ -636,16 +636,16 @@ class VerilatorXMLToAST:
     
         return ast
     
-    def parse_iface(self, iface, typetable, used_vars):
+    def parse_iface(self, iface):
         items = []
         for scope in iface.findall("scope"):
             for var in scope.findall("varscope"):
-                if not self.name_format(var.get("name")) in used_vars:
+                if not self.name_format(var.get("name")) in self.used_vars:
                     continue
     
                 var_name = self.name_format(var.get("name"))
                 var_type_id = var.get("dtype_id")
-                var_type = typetable[var_type_id]
+                var_type = self.typetable[var_type_id]
                 var_type_name = var_type[2]
                 var_type_width = var_type[0]
                 assert(var_type_width > 0)
@@ -684,27 +684,25 @@ class VerilatorXMLToAST:
         return items
     
     def used_varref(self, nlst):
-        uv = {}
         for varref in nlst.iter("varref"):
             var_name = self.name_format(varref.get("hier"))
-            if not var_name in uv:
-                uv[var_name] = 1
+            if not var_name in self.used_vars:
+                self.used_vars[var_name] = 1
             else:
-                uv[var_name] += 1
-        return uv
+                self.used_vars[var_name] += 1
     
     def parse_net_list(self, nlst):
         netlist = list(nlst)
-        typetable = self.parse_typetable(nlst.find("typetable"))
+        self.parse_typetable(nlst.find("typetable"))
     
-        uv = self.used_varref(nlst)
+        self.used_varref(nlst)
     
         iface_vars = []
         for iface in nlst.findall("iface"):
-            iface_vars += self.parse_iface(iface, typetable, uv)
+            iface_vars += self.parse_iface(iface)
     
         assert(netlist[0].tag == "module")
-        module = self.parse_module(netlist[0], typetable, iface_vars, uv)
+        module = self.parse_module(netlist[0], iface_vars)
     
         return module
     
