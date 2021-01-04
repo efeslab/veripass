@@ -8,13 +8,37 @@ import pyverilog.vparser.ast as vast
 from pyverilog.ast_code_generator.codegen import ASTCodeGenerator
 import xml.etree.ElementTree as ET
 
+class dtype:
+    def __init__(self, width, array_len, type_name):
+        self.width = width
+        self.array_len = array_len
+        self.type_name = type_name
+
+class variable:
+    def __init__(self, var_name, dtype_id, dtype):
+        self.var_name = var_name
+        self.dtype_id = dtype_id
+        self.ref = []
+        self.refcount = 1
+        if dtype.array_len == 0:
+            self.dff = []
+            for i in range(0, dtype.width):
+                self.dff.append(None)
+        else:
+            self.dff = []
+            for i in range(0, dtype.array_len):
+                self.dff.append([])
+                for j in range(0, dtype.width):
+                    self.dff[i].append(None)
+
 class VerilatorXMLToAST:
     def __init__(self, top_module_name, xml_filename):
         self.top_module_name = top_module_name
         self.xml_filename = xml_filename
-        # [0]: width, [1]: array_len, [2]: type
-        self.typetable = {}
-        self.used_vars = {}
+        self.typetable = {} # dtype_id -> dtype()
+        self.used_vars = {} # var_name -> variable()
+
+        self.parser_stack = []
     
     def name_format(self, name):
         s = name
@@ -25,6 +49,20 @@ class VerilatorXMLToAST:
         s = s.replace("[", "__BRA__")
         s = s.replace("]", "__KET__")
         return s
+
+    def verilog_string_to_int(self, s):
+        value_pos = s.find("h")
+        if value_pos >= 0:
+            return int("0x"+s[value_pos+1:], 16)
+        else:
+            value_pos = s.find("b")
+            if value_pos >= 0:
+                return int("0b"+s[value_pos+1:], 16)
+            else:
+                value_pos = s.find("'")
+                assert(value_pos == -1)
+                return int(s)
+
     
     def parse_files(self, fls):
         files = list(fls)
@@ -57,7 +95,7 @@ class VerilatorXMLToAST:
                         #print(sub_dtype_id, "not found, continue")
                         continue
                     sub_dtype = self.typetable[sub_dtype_id]
-                    assert(sub_dtype[1] == 0) # the subtype must not be an array
+                    assert(sub_dtype.array_len == 0) # the subtype must not be an array
                     r = list(t)
                     assert(len(r) == 1)
                     r = list(r[0])
@@ -70,12 +108,12 @@ class VerilatorXMLToAST:
                     right = int(right.replace("32'sh", "0x").replace("32'h", "0x"), 16)
                     assert(right == 0)
                     assert(left >= 0)
-                    width = sub_dtype[0]
+                    width = sub_dtype.width
                     array_len = left - right + 1
                     if t.tag == "unpackarraydtype":
-                        self.typetable[type_id] = [width, array_len, sub_dtype[2]]
+                        self.typetable[type_id] = dtype(width, array_len, sub_dtype.type_name)
                     else:
-                        self.typetable[type_id] = [width*array_len, 0, sub_dtype[2]]
+                        self.typetable[type_id] = dtype(width*array_len, 0, sub_dtype.type_name)
                     tptbl_handled += 1
                     #print(type_id, self.typetable[type_id])
                 elif t.tag == "basicdtype":
@@ -91,14 +129,14 @@ class VerilatorXMLToAST:
                     assert(right == 0)
                     width = left - right + 1
                     array_len = 0 # 0 means it is not an array
-                    self.typetable[type_id] = [width, array_len, type_type]
+                    self.typetable[type_id] = dtype(width, array_len, type_type)
                     tptbl_handled += 1
                     #print(type_id, self.typetable[type_id])
                 elif t.tag == "enumdtype":
                     type_type = "logic"
                     width = int(math.log2(len(list(t))-1)+1)
                     array_len = 0
-                    self.typetable[type_id] = [width, array_len, type_type]
+                    self.typetable[type_id] = dtype(width, array_len, type_type)
                     tptbl_handled += 1
                     #print(type_id, self.typetable[type_id])
                 elif t.tag == "structdtype":
@@ -111,12 +149,12 @@ class VerilatorXMLToAST:
                             skip = True
                             #print(sub_dtype_id, "not found, continue")
                             break
-                        assert(self.typetable[sub_dtype_id][1] == 0) # subtype must not be an array
-                        width += self.typetable[sub_dtype_id][0]
+                        assert(self.typetable[sub_dtype_id].array_len == 0) # subtype must not be an array
+                        width += self.typetable[sub_dtype_id].width
                     if skip:
                         continue
                     array_len = 0
-                    self.typetable[type_id] = [width, array_len, type_type]
+                    self.typetable[type_id] = dtype(width, array_len, type_type)
                     tptbl_handled += 1
                     #print(type_id, self.typetable[type_id])
                 elif t.tag == "refdtype":
@@ -135,7 +173,10 @@ class VerilatorXMLToAST:
         method = "parse_elem_" + elem.tag
         func = getattr(self, method)
         assert(func != None)
-        return func(elem)
+        self.parser_stack.append(elem.tag)
+        r = func(elem)
+        self.parser_stack.pop()
+        return r
     
     def parse_elem_const(self, elem):
         assert(elem.tag == "const")
@@ -143,7 +184,28 @@ class VerilatorXMLToAST:
     
     def parse_elem_varref(self, elem):
         assert(elem.tag == "varref")
-        return vast.Identifier(self.name_format(elem.get("hier")))
+        var_name = self.name_format(elem.get("hier"))
+        var_dtype = self.typetable[self.used_vars[var_name].dtype_id]
+        r = vast.Identifier(self.name_format(elem.get("hier")))
+        self.used_vars[var_name].ref.append(r)
+
+        # DFF detection
+        # If the left-side of an assigndly is a varref, then the whole var
+        # should be an DFF.
+        if self.parser_stack[-2] == "assigndly":
+            assert(var_dtype.array_len == 0) # array should not be signed directly
+            for i in range(0, var_dtype.width):
+                assert(self.used_vars[var_name].dff[i] == True or
+                        self.used_vars[var_name].dff[i] == None)
+                self.used_vars[var_name].dff[i] = True
+        elif self.parser_stack[-2] == "assign":
+            assert(var_dtype.array_len == 0)
+            for i in range(0, var_dtype.width):
+                assert(self.used_vars[var_name].dff[i] == False or
+                        self.used_vars[var_name].dff[i] == None)
+                self.used_vars[var_name].dff[i] = False
+
+        return r
     
     def parse_elem_sel(self, elem):
         assert(elem.tag == "sel")
@@ -159,37 +221,133 @@ class VerilatorXMLToAST:
     
         if start.__class__ == vast.IntConst:
             start_value_pos = start.value.find("h")
-            start_value = int("0x"+start.value[start_value_pos+1:], 16)
+            assert(start_value_pos != -1)
+            start_value = self.verilog_string_to_int(start.value)
+            assert(start_value == int("0x"+start.value[start_value_pos+1:], 16))
             width_value_pos = width.value.find("h")
-            width_value = int("0x"+width.value[width_value_pos+1:], 16)
+            assert(width_value_pos != -1)
+            width_value = self.verilog_string_to_int(width.value)
+            assert(width_value == int("0x"+width.value[width_value_pos+1:], 16))
             msb = start_value + width_value - 1
             lsb = start_value
-            return vast.Partselect(varref, vast.IntConst(str(msb)), vast.IntConst(str(lsb)))
+            r = vast.Partselect(varref, vast.IntConst(str(msb)), vast.IntConst(str(lsb)))
         else:
             width_value_pos = width.value.find("h")
-            width_value = int("0x"+width.value[width_value_pos+1:], 16)
+            assert(width_value_pos != -1)
+            width_value = self.verilog_string_to_int(width.value)
+            assert(width_value == int("0x"+width.value[width_value_pos+1:], 16))
             if width_value == 1:
-                return vast.Partselect(varref, start, start)
+                r = vast.Partselect(varref, start, start)
             else:
-                return vast.Partselect(varref,
+                r = vast.Partselect(varref,
                         vast.Plus(start, vast.IntConst(str(width_value-1))),
                         start)
-    
+
+        ## DFF detection
+        ## arr[3:0] <= ...
+        if varref.__class__ == vast.Identifier:
+            var_dtype_id = self.used_vars[varref.name].dtype_id
+            var_dtype = self.typetable[var_dtype_id]
+            assert(var_dtype.array_len == 0)
+
+            if self.parser_stack[-2] == "assigndly:left" or self.parser_stack[-2] == "assign:left":
+                isdff = True if self.parser_stack[-2] == "assigndly:left" else False
+
+                # if msb and lsb are both IntConst, var[msb:lsb] is dff
+                if r.msb.__class__ == vast.IntConst and r.lsb.__class__ == vast.IntConst:
+                    msb = int(r.msb.value)
+                    lsb = int(r.lsb.value)
+                    assert(msb >= lsb and msb < var_dtype.width and lsb >= 0)
+                    for i in range(lsb, msb+1):
+                        assert(self.used_vars[varref.name].dff[i] == isdff or
+                                self.used_vars[varref.name].dff[i] == None)
+                        self.used_vars[varref.name].dff[i] = isdff
+                # if lsb is not IntConst, we assume this implies the whole var is dff
+                # TODO: this may not be complete, if weird things happen, an assertion
+                else:
+                    assert(r.lsb.__class__ == vast.Arrayselect or r.lsb.__class__ == vast.Partselect
+                            or r.lsb.__class__ == vast.Identifier)
+                    for i in range(0, var_dtype.width):
+                        assert(self.used_vars[varref.name].dff[i] == isdff or
+                                self.used_vars[varref.name].dff[i] == None)
+                        self.used_vars[varref.name].dff[i] = isdff
+        elif varref.__class__ == vast.Arrayselect:
+            arr = varref.var
+            idx = varref.idx
+            assert(arr.__class__ == vast.Identifier)
+            arr_dtype_id = self.used_vars[arr.name].dtype_id
+            arr_dtype = self.typetable[arr_dtype_id]
+            assert(arr_dtype.array_len != 0)
+
+            if self.parser_stack[-2] == "assigndly:left" or self.parser_stack[-2] == "assign:left":
+                isdff = True if self.parser_stack[-2] == "assigndly:left" else False
+
+                # if msb and lsb are both IntConst, var[msb:lsb] is dff
+                if r.msb.__class__ == vast.IntConst and r.lsb.__class__ == vast.IntConst:
+                    msb = int(r.msb.value)
+                    lsb = int(r.lsb.value)
+                    assert(msb >= lsb and msb < arr_dtype.width and lsb >= 0)
+                    # if the ArraySelect has a constant index, mark arr[k][msb:lsb] as dff
+                    if idx.__class__ == vast.IntConst:
+                        value_pos = idx.value.find("h")
+                        assert(value_pos != -1)
+                        value = self.verilog_string_to_int(idx.value)
+                        assert(value == int("0x"+idx.value[value_pos+1:], 16))
+                        for i in range(lsb, msb+1):
+                            assert(self.used_vars[arr.name].dff[value][i] == isdff or
+                                    self.used_vars[arr.name].dff[value][i] == None)
+                            self.used_vars[arr.name].dff[value][i] = isdff
+                    # if the ArraySelect has a variable index, mark arr[any][msb:lsb] as dff
+                    else:
+                        for i in range(0, arr_dtype.array_len):
+                            for j in range(lsb, msb+1):
+                                assert(self.used_vars[arr.name].dff[i][j] == isdff or
+                                        self.used_vars[arr.name].dff[i][j] == None)
+                                self.used_vars[arr.name].dff[i][j] = isdff
+                # if lsb is not IntConst, we assume this implies the whole var is dff
+                # TODO: this may not be complete, if weird things happen, an assertion
+                else:
+                    assert(r.lsb.__class__ == vast.Arrayselect or r.lsb.__class__ == vast.Partselect
+                            or r.lsb.__class__ == vast.Identifier)
+                    if idx.__class__ == vast.IntConst:
+                        value_pos = idx.value.find("h")
+                        assert(value_pos != -1)
+                        value = self.verilog_string_to_int(idx.value)
+                        assert(value == int("0x"+idx.value[value_pos+1:], 16))
+                        for i in range(0, arr_dtype.width):
+                            assert(self.used_vars[arr.name].dff[value][i] == isdff or
+                                    self.used_vars[arr.name].dff[value][i] == None)
+                            self.used_vars[arr.name].dff[value][i] = isdff
+                    else:
+                        for i in range(0, arr_dtype.array_len):
+                            for j in range(0, arr_dtype.width):
+                                assert(self.used_vars[arr.name].dff[i][j] == isdff or
+                                        self.used_vars[arr.name].dff[i][j] == None)
+                                self.used_vars[arr.name].dff[i][j] = isdff
+
+        return r
     
     def parse_elem_assigndly(self, elem):
         assert(elem.tag == "assigndly")
+
         l = list(elem)
         assert(len(l) == 2)
+        self.parser_stack[-1] = "assigndly:right"
         right = self.parse_elem(l[0])
+        self.parser_stack[-1] = "assigndly:left"
         left = self.parse_elem(l[1])
+
         return vast.NonblockingSubstitution(vast.Lvalue(left), vast.Rvalue(right))
     
     def parse_elem_assign(self, elem):
         assert(elem.tag == "assign")
         l = list(elem)
         assert(len(l) == 2)
+        self.parser_stack[-1] = "assign:right"
         right = self.parse_elem(l[0])
+        self.parser_stack[-1] = "assign:left"
         left = self.parse_elem(l[1])
+
         return vast.Substitution(vast.Lvalue(left), vast.Rvalue(right))
     
     def parse_elem_cond(self, elem):
@@ -442,8 +600,49 @@ class VerilatorXMLToAST:
         assert(elem.tag == "arraysel")
         l = list(elem)
         assert(len(l) == 2)
+
         arr = self.parse_elem(l[0])
+        arr_dtype_id = self.used_vars[arr.name].dtype_id
+        arr_dtype = self.typetable[arr_dtype_id]
+        assert(arr_dtype.array_len != 0)
+
         idx = self.parse_elem(l[1])
+
+        ## DFF detection
+        ## arr[i] <= ...
+        if self.parser_stack[-2] == "assigndly:left" or self.parser_stack[-2] == "assign:left":
+            isdff = True if self.parser_stack[-2] == "assigndly:left" else False
+
+            # if the idx is IntConst, arr[idx] is dff
+            if idx.__class__ == vast.IntConst:
+                value_pos = idx.value.find("h")
+                assert(value_pos != -1)
+                value = self.verilog_string_to_int(idx.value)
+                assert(value == int("0x"+idx.value[value_pos+1:], 16))
+                for i in range(0, arr_dtype.width):
+                    #print(arr_dtype_id, arr_dtype.array_len, arr_dtype.width, arr.name, value,
+                    #        self.used_vars[arr.name].dff[value][i], self.parser_stack[-2], isdff)
+                    assert(self.used_vars[arr.name].dff[value][i] == isdff or
+                            self.used_vars[arr.name].dff[value][i] == None)
+                    self.used_vars[arr.name].dff[value][i] = isdff
+            # if the idx is Identifier, the arr with any index is dff
+            elif idx.__class__ == vast.Identifier:
+                for i in range(0, arr_dtype.array_len):
+                    for j in range(0, arr_dtype.width):
+                        assert(self.used_vars[arr.name].dff[i][j] == isdff or
+                                self.used_vars[arr.name].dff[i][j] == None)
+                        self.used_vars[arr.name].dff[i][j] = isdff
+            # if the idx is partselect, the arr with any index is dff
+            elif idx.__class__ == vast.Partselect:
+                assert(idx.var.__class__ == vast.Identifier)
+                for i in range(0, arr_dtype.array_len):
+                    for j in range(0, arr_dtype.width):
+                        assert(self.used_vars[arr.name].dff[i][j] == isdff or
+                                self.used_vars[arr.name].dff[i][j] == None)
+                        self.used_vars[arr.name].dff[i][j] = isdff
+            else:
+                assert(0 and "meh")
+
         return vast.Arrayselect(arr, idx)
     
     def parse_elem_if(self, elem):
@@ -473,7 +672,9 @@ class VerilatorXMLToAST:
     
     def parse_assign(self, assign):
         l = list(assign)
+        self.parser_stack[-1] = "assign:right"
         right = self.parse_elem(l[0])
+        self.parser_stack[-1] = "assign:left"
         left = self.parse_elem(l[1])
         return vast.Assign(vast.Lvalue(left), vast.Rvalue(right))
     
@@ -481,10 +682,14 @@ class VerilatorXMLToAST:
         items = []
         for elem in list(initial):
             if elem.tag == "assign":
+                self.parser_stack.append("assign:initial")
                 l = list(elem)
+                self.parser_stack[-1] = "assign:initial:right"
                 right = self.parse_elem(l[0])
+                self.parser_stack[-1] = "assign:initial:left"
                 left = self.parse_elem(l[1])
                 items.append(vast.Substitution(vast.Lvalue(left), vast.Rvalue(right)))
+                self.parser_stack.pop()
             else:
                 items.append(self.parse_elem(elem))
         return items
@@ -513,7 +718,9 @@ class VerilatorXMLToAST:
                 #assert(assign.tag == "assign" or assign.tag == "contassign")
                 senslist = vast.SensList([vast.Sens(vast.Identifier(""), type="all")])
                 if assign.tag == "assign" or assign.tag == "contassign":
+                    self.parser_stack.append("assign")
                     items.append(self.parse_assign(assign))
+                    self.parser_stack.pop()
                 elif assign.tag == "always":
                     items.append(self.parse_always(assign, senslist))
         elif active_name == "initial":
@@ -571,10 +778,10 @@ class VerilatorXMLToAST:
             var_name = self.name_format(var.get("name"))
             var_type_id = var.get("dtype_id")
             var_type = self.typetable[var_type_id]
-            var_type_name = var_type[2]
-            var_type_width = var_type[0]
+            var_type_name = var_type.type_name
+            var_type_width = var_type.width
             assert(var_type_width > 0)
-            var_type_array_len = var_type[1]
+            var_type_array_len = var_type.array_len
             var_dir = var.get("dir")
     
             width = None
@@ -646,10 +853,10 @@ class VerilatorXMLToAST:
                 var_name = self.name_format(var.get("name"))
                 var_type_id = var.get("dtype_id")
                 var_type = self.typetable[var_type_id]
-                var_type_name = var_type[2]
-                var_type_width = var_type[0]
+                var_type_name = var_type.type_name
+                var_type_width = var_type.width
                 assert(var_type_width > 0)
-                var_type_array_len = var_type[1]
+                var_type_array_len = var_type.array_len
                 var_dir = var.get("dir")
     
                 width = None
@@ -686,10 +893,12 @@ class VerilatorXMLToAST:
     def used_varref(self, nlst):
         for varref in nlst.iter("varref"):
             var_name = self.name_format(varref.get("hier"))
+            dtype_id = varref.get("dtype_id")
+            dtype = self.typetable[dtype_id]
             if not var_name in self.used_vars:
-                self.used_vars[var_name] = 1
+                self.used_vars[var_name] = variable(var_name, dtype_id, dtype)
             else:
-                self.used_vars[var_name] += 1
+                self.used_vars[var_name].refcount += 1
     
     def parse_net_list(self, nlst):
         netlist = list(nlst)
@@ -728,6 +937,8 @@ class Verilator:
         self.desc_file = desc_file
         self.verilator_path = str(pathlib.Path(__file__).parent.absolute()/"verilator"/"bin"/"verilator")
         self.tempdir = tempfile.mkdtemp(prefix="veripass-")
+        self.x2a = None
+        self.ast = None
 
     def compile(self):
         verilator_arg = verilator_arg_template.format(self.verilator_path,
@@ -738,8 +949,16 @@ class Verilator:
 
     def get_ast(self):
         self.compile()
-        x2a = VerilatorXMLToAST(self.top_module_name, self.tempdir+"/V"+self.top_module_name+".xml")
-        return x2a.parse()
+        if self.x2a == None:
+            self.x2a = VerilatorXMLToAST(self.top_module_name, self.tempdir+"/V"+self.top_module_name+".xml")
+        if self.ast == None:
+            self.ast = self.x2a.parse()
+        return self.ast
+
+    def get_used_vars(self):
+        if self.ast == None:
+            get_ast()
+        return self.x2a.used_vars
 
 #v = Verilator(top_module_name="ccip_std_afu_wrapper",
 #        desc_file="/home/jcma/hardware-bugbase-final/grayscale-fifo-overflow/sources.txt")
