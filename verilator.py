@@ -474,6 +474,13 @@ class VerilatorXMLToAST:
         assert(len(l) == 1)
         a = self.parse_elem(l[0])
         return vast.Uand(a)
+
+    def parse_elem_redor(self, elem):
+        assert(elem.tag == "redor")
+        l = list(elem)
+        assert(len(l) == 1)
+        a = self.parse_elem(l[0])
+        return vast.Uor(a)
     
     def parse_elem_eqcase(self, elem):
         assert(elem.tag == "eqcase")
