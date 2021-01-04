@@ -20,3 +20,35 @@ codegen = ASTCodeGenerator()
 rslt = codegen.visit(ast)
 with open(args.output, 'w+') as f:
     f.write(rslt)
+
+used_vars = v.get_used_vars()
+typetable = v.get_typetable()
+total = 0
+dff = 0
+nodff = 0
+unknown = 0
+for name in used_vars:
+    varref = used_vars[name]
+    varref_dtype = typetable[varref.dtype_id]
+    if varref_dtype.array_len == 0:
+        for i in range(0, varref_dtype.width):
+            total += 1
+            if varref.dff[i] == True:
+                dff += 1
+            elif varref.dff[i] == False:
+                nodff += 1
+            elif varref.dff[i] == None:
+                unknown += 1
+    else:
+        for i in range(0, varref_dtype.array_len):
+            for j in range(0, varref_dtype.width):
+                total += 1
+                if varref.dff[i][j] == True:
+                    dff += 1
+                elif varref.dff[i][j] == False:
+                    nodff += 1
+                elif varref.dff[i][j] == None:
+                    unknown += 1
+print(total, dff, nodff, unknown)
+
+

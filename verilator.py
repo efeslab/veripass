@@ -190,20 +190,23 @@ class VerilatorXMLToAST:
         self.used_vars[var_name].ref.append(r)
 
         # DFF detection
-        # If the left-side of an assigndly is a varref, then the whole var
-        # should be an DFF.
-        if self.parser_stack[-2] == "assigndly":
-            assert(var_dtype.array_len == 0) # array should not be signed directly
-            for i in range(0, var_dtype.width):
-                assert(self.used_vars[var_name].dff[i] == True or
-                        self.used_vars[var_name].dff[i] == None)
-                self.used_vars[var_name].dff[i] = True
-        elif self.parser_stack[-2] == "assign":
-            assert(var_dtype.array_len == 0)
-            for i in range(0, var_dtype.width):
-                assert(self.used_vars[var_name].dff[i] == False or
-                        self.used_vars[var_name].dff[i] == None)
-                self.used_vars[var_name].dff[i] = False
+        if self.parser_stack[0] != "initial":
+            # If the left-side of an assigndly is a varref, then the whole var
+            # should be an DFF.
+            if self.parser_stack[-2] == "assigndly:left":
+                assert(var_dtype.array_len == 0) # array should not be signed directly
+                for i in range(0, var_dtype.width):
+                    #print(var_name, i)
+                    assert(self.used_vars[var_name].dff[i] == True or
+                            self.used_vars[var_name].dff[i] == None)
+                    self.used_vars[var_name].dff[i] = True
+            elif self.parser_stack[-2] == "assign:left":
+                assert(var_dtype.array_len == 0)
+                for i in range(0, var_dtype.width):
+                    assert(self.used_vars[var_name].dff[i] == False or
+                            self.used_vars[var_name].dff[i] == None)
+                    self.used_vars[var_name].dff[i] = False
+
 
         return r
     
@@ -244,86 +247,87 @@ class VerilatorXMLToAST:
                         start)
 
         ## DFF detection
-        ## arr[3:0] <= ...
-        if varref.__class__ == vast.Identifier:
-            var_dtype_id = self.used_vars[varref.name].dtype_id
-            var_dtype = self.typetable[var_dtype_id]
-            assert(var_dtype.array_len == 0)
+        if self.parser_stack[0] != "initial":
+            ## arr[3:0] <= ...
+            if varref.__class__ == vast.Identifier:
+                var_dtype_id = self.used_vars[varref.name].dtype_id
+                var_dtype = self.typetable[var_dtype_id]
+                assert(var_dtype.array_len == 0)
 
-            if self.parser_stack[-2] == "assigndly:left" or self.parser_stack[-2] == "assign:left":
-                isdff = True if self.parser_stack[-2] == "assigndly:left" else False
+                if self.parser_stack[-2] == "assigndly:left" or self.parser_stack[-2] == "assign:left":
+                    isdff = True if self.parser_stack[-2] == "assigndly:left" else False
 
-                # if msb and lsb are both IntConst, var[msb:lsb] is dff
-                if r.msb.__class__ == vast.IntConst and r.lsb.__class__ == vast.IntConst:
-                    msb = int(r.msb.value)
-                    lsb = int(r.lsb.value)
-                    assert(msb >= lsb and msb < var_dtype.width and lsb >= 0)
-                    for i in range(lsb, msb+1):
-                        assert(self.used_vars[varref.name].dff[i] == isdff or
-                                self.used_vars[varref.name].dff[i] == None)
-                        self.used_vars[varref.name].dff[i] = isdff
-                # if lsb is not IntConst, we assume this implies the whole var is dff
-                # TODO: this may not be complete, if weird things happen, an assertion
-                else:
-                    assert(r.lsb.__class__ == vast.Arrayselect or r.lsb.__class__ == vast.Partselect
-                            or r.lsb.__class__ == vast.Identifier)
-                    for i in range(0, var_dtype.width):
-                        assert(self.used_vars[varref.name].dff[i] == isdff or
-                                self.used_vars[varref.name].dff[i] == None)
-                        self.used_vars[varref.name].dff[i] = isdff
-        elif varref.__class__ == vast.Arrayselect:
-            arr = varref.var
-            idx = varref.idx
-            assert(arr.__class__ == vast.Identifier)
-            arr_dtype_id = self.used_vars[arr.name].dtype_id
-            arr_dtype = self.typetable[arr_dtype_id]
-            assert(arr_dtype.array_len != 0)
-
-            if self.parser_stack[-2] == "assigndly:left" or self.parser_stack[-2] == "assign:left":
-                isdff = True if self.parser_stack[-2] == "assigndly:left" else False
-
-                # if msb and lsb are both IntConst, var[msb:lsb] is dff
-                if r.msb.__class__ == vast.IntConst and r.lsb.__class__ == vast.IntConst:
-                    msb = int(r.msb.value)
-                    lsb = int(r.lsb.value)
-                    assert(msb >= lsb and msb < arr_dtype.width and lsb >= 0)
-                    # if the ArraySelect has a constant index, mark arr[k][msb:lsb] as dff
-                    if idx.__class__ == vast.IntConst:
-                        value_pos = idx.value.find("h")
-                        assert(value_pos != -1)
-                        value = self.verilog_string_to_int(idx.value)
-                        assert(value == int("0x"+idx.value[value_pos+1:], 16))
+                    # if msb and lsb are both IntConst, var[msb:lsb] is dff
+                    if r.msb.__class__ == vast.IntConst and r.lsb.__class__ == vast.IntConst:
+                        msb = int(r.msb.value)
+                        lsb = int(r.lsb.value)
+                        assert(msb >= lsb and msb < var_dtype.width and lsb >= 0)
                         for i in range(lsb, msb+1):
-                            assert(self.used_vars[arr.name].dff[value][i] == isdff or
-                                    self.used_vars[arr.name].dff[value][i] == None)
-                            self.used_vars[arr.name].dff[value][i] = isdff
-                    # if the ArraySelect has a variable index, mark arr[any][msb:lsb] as dff
+                            assert(self.used_vars[varref.name].dff[i] == isdff or
+                                    self.used_vars[varref.name].dff[i] == None)
+                            self.used_vars[varref.name].dff[i] = isdff
+                    # if lsb is not IntConst, we assume this implies the whole var is dff
+                    # TODO: this may not be complete, if weird things happen, an assertion
                     else:
-                        for i in range(0, arr_dtype.array_len):
-                            for j in range(lsb, msb+1):
-                                assert(self.used_vars[arr.name].dff[i][j] == isdff or
-                                        self.used_vars[arr.name].dff[i][j] == None)
-                                self.used_vars[arr.name].dff[i][j] = isdff
-                # if lsb is not IntConst, we assume this implies the whole var is dff
-                # TODO: this may not be complete, if weird things happen, an assertion
-                else:
-                    assert(r.lsb.__class__ == vast.Arrayselect or r.lsb.__class__ == vast.Partselect
-                            or r.lsb.__class__ == vast.Identifier)
-                    if idx.__class__ == vast.IntConst:
-                        value_pos = idx.value.find("h")
-                        assert(value_pos != -1)
-                        value = self.verilog_string_to_int(idx.value)
-                        assert(value == int("0x"+idx.value[value_pos+1:], 16))
-                        for i in range(0, arr_dtype.width):
-                            assert(self.used_vars[arr.name].dff[value][i] == isdff or
-                                    self.used_vars[arr.name].dff[value][i] == None)
-                            self.used_vars[arr.name].dff[value][i] = isdff
+                        assert(r.lsb.__class__ == vast.Arrayselect or r.lsb.__class__ == vast.Partselect
+                                or r.lsb.__class__ == vast.Identifier)
+                        for i in range(0, var_dtype.width):
+                            assert(self.used_vars[varref.name].dff[i] == isdff or
+                                    self.used_vars[varref.name].dff[i] == None)
+                            self.used_vars[varref.name].dff[i] = isdff
+            elif varref.__class__ == vast.Arrayselect:
+                arr = varref.var
+                idx = varref.idx
+                assert(arr.__class__ == vast.Identifier)
+                arr_dtype_id = self.used_vars[arr.name].dtype_id
+                arr_dtype = self.typetable[arr_dtype_id]
+                assert(arr_dtype.array_len != 0)
+
+                if self.parser_stack[-2] == "assigndly:left" or self.parser_stack[-2] == "assign:left":
+                    isdff = True if self.parser_stack[-2] == "assigndly:left" else False
+
+                    # if msb and lsb are both IntConst, var[msb:lsb] is dff
+                    if r.msb.__class__ == vast.IntConst and r.lsb.__class__ == vast.IntConst:
+                        msb = int(r.msb.value)
+                        lsb = int(r.lsb.value)
+                        assert(msb >= lsb and msb < arr_dtype.width and lsb >= 0)
+                        # if the ArraySelect has a constant index, mark arr[k][msb:lsb] as dff
+                        if idx.__class__ == vast.IntConst:
+                            value_pos = idx.value.find("h")
+                            assert(value_pos != -1)
+                            value = self.verilog_string_to_int(idx.value)
+                            assert(value == int("0x"+idx.value[value_pos+1:], 16))
+                            for i in range(lsb, msb+1):
+                                assert(self.used_vars[arr.name].dff[value][i] == isdff or
+                                        self.used_vars[arr.name].dff[value][i] == None)
+                                self.used_vars[arr.name].dff[value][i] = isdff
+                        # if the ArraySelect has a variable index, mark arr[any][msb:lsb] as dff
+                        else:
+                            for i in range(0, arr_dtype.array_len):
+                                for j in range(lsb, msb+1):
+                                    assert(self.used_vars[arr.name].dff[i][j] == isdff or
+                                            self.used_vars[arr.name].dff[i][j] == None)
+                                    self.used_vars[arr.name].dff[i][j] = isdff
+                    # if lsb is not IntConst, we assume this implies the whole var is dff
+                    # TODO: this may not be complete, if weird things happen, an assertion
                     else:
-                        for i in range(0, arr_dtype.array_len):
-                            for j in range(0, arr_dtype.width):
-                                assert(self.used_vars[arr.name].dff[i][j] == isdff or
-                                        self.used_vars[arr.name].dff[i][j] == None)
-                                self.used_vars[arr.name].dff[i][j] = isdff
+                        assert(r.lsb.__class__ == vast.Arrayselect or r.lsb.__class__ == vast.Partselect
+                                or r.lsb.__class__ == vast.Identifier)
+                        if idx.__class__ == vast.IntConst:
+                            value_pos = idx.value.find("h")
+                            assert(value_pos != -1)
+                            value = self.verilog_string_to_int(idx.value)
+                            assert(value == int("0x"+idx.value[value_pos+1:], 16))
+                            for i in range(0, arr_dtype.width):
+                                assert(self.used_vars[arr.name].dff[value][i] == isdff or
+                                        self.used_vars[arr.name].dff[value][i] == None)
+                                self.used_vars[arr.name].dff[value][i] = isdff
+                        else:
+                            for i in range(0, arr_dtype.array_len):
+                                for j in range(0, arr_dtype.width):
+                                    assert(self.used_vars[arr.name].dff[i][j] == isdff or
+                                            self.used_vars[arr.name].dff[i][j] == None)
+                                    self.used_vars[arr.name].dff[i][j] = isdff
 
         return r
     
@@ -609,39 +613,40 @@ class VerilatorXMLToAST:
         idx = self.parse_elem(l[1])
 
         ## DFF detection
-        ## arr[i] <= ...
-        if self.parser_stack[-2] == "assigndly:left" or self.parser_stack[-2] == "assign:left":
-            isdff = True if self.parser_stack[-2] == "assigndly:left" else False
+        if self.parser_stack[0] != "initial":
+            ## arr[i] <= ...
+            if self.parser_stack[-2] == "assigndly:left" or self.parser_stack[-2] == "assign:left":
+                isdff = True if self.parser_stack[-2] == "assigndly:left" else False
 
-            # if the idx is IntConst, arr[idx] is dff
-            if idx.__class__ == vast.IntConst:
-                value_pos = idx.value.find("h")
-                assert(value_pos != -1)
-                value = self.verilog_string_to_int(idx.value)
-                assert(value == int("0x"+idx.value[value_pos+1:], 16))
-                for i in range(0, arr_dtype.width):
-                    #print(arr_dtype_id, arr_dtype.array_len, arr_dtype.width, arr.name, value,
-                    #        self.used_vars[arr.name].dff[value][i], self.parser_stack[-2], isdff)
-                    assert(self.used_vars[arr.name].dff[value][i] == isdff or
-                            self.used_vars[arr.name].dff[value][i] == None)
-                    self.used_vars[arr.name].dff[value][i] = isdff
-            # if the idx is Identifier, the arr with any index is dff
-            elif idx.__class__ == vast.Identifier:
-                for i in range(0, arr_dtype.array_len):
-                    for j in range(0, arr_dtype.width):
-                        assert(self.used_vars[arr.name].dff[i][j] == isdff or
-                                self.used_vars[arr.name].dff[i][j] == None)
-                        self.used_vars[arr.name].dff[i][j] = isdff
-            # if the idx is partselect, the arr with any index is dff
-            elif idx.__class__ == vast.Partselect:
-                assert(idx.var.__class__ == vast.Identifier)
-                for i in range(0, arr_dtype.array_len):
-                    for j in range(0, arr_dtype.width):
-                        assert(self.used_vars[arr.name].dff[i][j] == isdff or
-                                self.used_vars[arr.name].dff[i][j] == None)
-                        self.used_vars[arr.name].dff[i][j] = isdff
-            else:
-                assert(0 and "meh")
+                # if the idx is IntConst, arr[idx] is dff
+                if idx.__class__ == vast.IntConst:
+                    value_pos = idx.value.find("h")
+                    assert(value_pos != -1)
+                    value = self.verilog_string_to_int(idx.value)
+                    assert(value == int("0x"+idx.value[value_pos+1:], 16))
+                    for i in range(0, arr_dtype.width):
+                        #print(arr_dtype_id, arr_dtype.array_len, arr_dtype.width, arr.name, value,
+                        #        self.used_vars[arr.name].dff[value][i], self.parser_stack[-2], isdff)
+                        assert(self.used_vars[arr.name].dff[value][i] == isdff or
+                                self.used_vars[arr.name].dff[value][i] == None)
+                        self.used_vars[arr.name].dff[value][i] = isdff
+                # if the idx is Identifier, the arr with any index is dff
+                elif idx.__class__ == vast.Identifier:
+                    for i in range(0, arr_dtype.array_len):
+                        for j in range(0, arr_dtype.width):
+                            assert(self.used_vars[arr.name].dff[i][j] == isdff or
+                                    self.used_vars[arr.name].dff[i][j] == None)
+                            self.used_vars[arr.name].dff[i][j] = isdff
+                # if the idx is partselect, the arr with any index is dff
+                elif idx.__class__ == vast.Partselect:
+                    assert(idx.var.__class__ == vast.Identifier)
+                    for i in range(0, arr_dtype.array_len):
+                        for j in range(0, arr_dtype.width):
+                            assert(self.used_vars[arr.name].dff[i][j] == isdff or
+                                    self.used_vars[arr.name].dff[i][j] == None)
+                            self.used_vars[arr.name].dff[i][j] = isdff
+                else:
+                    assert(0 and "meh")
 
         return vast.Arrayselect(arr, idx)
     
@@ -680,24 +685,28 @@ class VerilatorXMLToAST:
     
     def parse_initial(self, initial):
         items = []
+        self.parser_stack.append("initial")
         for elem in list(initial):
             if elem.tag == "assign":
-                self.parser_stack.append("assign:initial")
+                self.parser_stack.append("assign")
                 l = list(elem)
-                self.parser_stack[-1] = "assign:initial:right"
+                self.parser_stack[-1] = "assign:right"
                 right = self.parse_elem(l[0])
-                self.parser_stack[-1] = "assign:initial:left"
+                self.parser_stack[-1] = "assign:left"
                 left = self.parse_elem(l[1])
                 items.append(vast.Substitution(vast.Lvalue(left), vast.Rvalue(right)))
                 self.parser_stack.pop()
             else:
                 items.append(self.parse_elem(elem))
+        self.parser_stack.pop()
         return items
     
     def parse_always(self, always, senslist):
         items = []
+        self.parser_stack.append("always")
         for elem in list(always):
             items.append(self.parse_elem(elem))
+        self.parser_stack.pop()
         if len(items) == 0:
             return None
         else:
@@ -959,6 +968,11 @@ class Verilator:
         if self.ast == None:
             get_ast()
         return self.x2a.used_vars
+
+    def get_typetable(self):
+        if self.ast == None:
+            get_ast()
+        return self.x2a.typetable
 
 #v = Verilator(top_module_name="ccip_std_afu_wrapper",
 #        desc_file="/home/jcma/hardware-bugbase-final/grayscale-fifo-overflow/sources.txt")
