@@ -8,6 +8,8 @@ import pyverilog.vparser.ast as vast
 from pyverilog.ast_code_generator.codegen import ASTCodeGenerator
 import xml.etree.ElementTree as ET
 
+sys.setrecursionlimit(1000000)
+
 class dtype:
     def __init__(self, width, array_len, type_name):
         self.width = width
@@ -39,9 +41,13 @@ class VerilatorXMLToAST:
         self.used_vars = {} # var_name -> variable()
 
         self.parser_stack = []
+        self.split_var = False
     
     def name_format(self, name):
         s = name
+        s = s.replace("(", "__028")
+        s = s.replace(")", "__029")
+        s = s.replace(":", "__03A")
         s = s.replace("__05F", "_")
         s = s.replace("TOP.", "", 1)
         s = s.replace(self.top_module_name+".", "", 1)
@@ -126,7 +132,7 @@ class VerilatorXMLToAST:
                         right = "0"
                     left = int(left)
                     right = int(right)
-                    assert(right == 0)
+                    #assert(right == 0)
                     width = left - right + 1
                     array_len = 0 # 0 means it is not an array
                     self.typetable[type_id] = dtype(width, array_len, type_type)
@@ -599,7 +605,8 @@ class VerilatorXMLToAST:
         for arg in list(l[0]):
             #assert(arg.tag == "time" or arg.tag == "scopename")
             if arg.tag == "scopename":
-                args[0] = vast.StringConst(fmt.replace("%m", "%s"))
+                args[0] = vast.StringConst(fmt.replace("%m", arg.get("name")))
+                continue
             args.append(self.parse_elem(arg))
         return vast.SingleStatement(vast.SystemCall("display", args))
     
@@ -806,7 +813,11 @@ class VerilatorXMLToAST:
                 width = vast.Width(vast.IntConst(str(var_type_width-1)), vast.IntConst(str(0)))
             if var_type_array_len != 0:
                 dim = vast.Width(vast.IntConst(str(var_type_array_len-1)), vast.IntConst(str(0)))
-    
+
+            anno = None
+            if self.split_var and (width != None or dim != None):
+                anno = "split_var"
+
             if var_dir == "input":
                 assert(dim == None)
                 p = vast.Ioport(vast.Input(var_name, width=width), vast.Logic(var_name, width=width))
@@ -823,7 +834,7 @@ class VerilatorXMLToAST:
                     p = vast.Parameter(var_name, self.parse_elem(l[0]))
                     items.append(p)
                 elif var_type_name == "logic":
-                    p = vast.Logic(var_name, width=width, dimensions=dim)
+                    p = vast.Logic(var_name, width=width, dimensions=dim, annotation=anno)
                     items.append(p)
                 elif var_type_name == "int":
                     p = vast.Int(var_name, width=width, dimensions=dim)
@@ -832,13 +843,16 @@ class VerilatorXMLToAST:
                     p = vast.Integer(var_name, width=width, dimensions=dim)
                     items.append(p)
                 elif var_type_name == "reg":
-                    p = vast.Reg(var_name, width=width, dimensions=dim)
+                    p = vast.Reg(var_name, width=width, dimensions=dim, annotation=anno)
                     items.append(p)
                 elif var_type_name == "wire":
-                    p = vast.Wire(var_name, width=width, dimensions=dim)
+                    p = vast.Wire(var_name, width=width, dimensions=dim, annotation=anno)
                     items.append(p)
                 elif var_type_name == "time":
                     p = vast.Time(var_name)
+                    items.append(p)
+                elif var_type_name == "bit":
+                    p = vast.Logic(var_name, width=width, dimensions=dim)
                     items.append(p)
                 else:
                     assert(0)
@@ -881,6 +895,10 @@ class VerilatorXMLToAST:
                     width = vast.Width(vast.IntConst(str(var_type_width-1)), vast.IntConst(str(0)))
                 if var_type_array_len != 0:
                     dim = vast.Width(vast.IntConst(str(var_type_array_len-1)), vast.IntConst(str(0)))
+
+                anno = None
+                if self.split_var and (width != None or dim != None):
+                    anno = "split_var"
     
                 assert(var_dir == None)
                 if var.get("param") == "true":
@@ -889,7 +907,7 @@ class VerilatorXMLToAST:
                     p = vast.Parameter(var_name, self.parse_elem(l[0]))
                     items.append(p)
                 elif var_type_name == "logic":
-                    p = vast.Logic(var_name, width=width, dimensions=dim)
+                    p = vast.Logic(var_name, width=width, dimensions=dim, annotation=anno)
                     items.append(p)
                 elif var_type_name == "int":
                     p = vast.Int(var_name, width=width, dimensions=dim)
@@ -898,10 +916,10 @@ class VerilatorXMLToAST:
                     p = vast.Integer(var_name, width=width, dimensions=dim)
                     items.append(p)
                 elif var_type_name == "reg":
-                    p = vast.Reg(var_name, width=width, dimensions=dim)
+                    p = vast.Reg(var_name, width=width, dimensions=dim, annotation=anno)
                     items.append(p)
                 elif var_type_name == "wire":
-                    p = vast.Wire(var_name, width=width, dimensions=dim)
+                    p = vast.Wire(var_name, width=width, dimensions=dim, annotation=anno)
                     items.append(p)
     
         return items
@@ -945,20 +963,40 @@ verilator_arg_template = """\
 {} -cc -timescale-override 10ps/10ps -Wno-WIDTH -Wno-LITENDIAN -Wno-UNPACKED -Wno-BLKANDNBLK \
 -Wno-CASEINCOMPLETE -Wno-CASEX -Wno-PINMISSING -trace-fst -trace-structs -assert -trace-max-array 65536 \
 -trace-max-width 65536 -unroll-count 65536 --Mdir {} --flatten --xml-only --xml-opt -F {} \
+-Wno-SPLITVAR -comp-limit-syms 0 \
+--top-module {}"""
+
+verilator_arg_template_single_file = """\
+{} -cc -timescale-override 10ps/10ps -Wno-WIDTH -Wno-LITENDIAN -Wno-UNPACKED -Wno-BLKANDNBLK \
+-Wno-CASEINCOMPLETE -Wno-CASEX -Wno-PINMISSING -trace-fst -trace-structs -assert -trace-max-array 65536 \
+-trace-max-width 65536 -unroll-count 65536 --Mdir {} --flatten --xml-only --xml-opt {} \
+-Wno-SPLITVAR -comp-limit-syms 0 \
 --top-module {}"""
 
 class Verilator:
-    def __init__(self, top_module_name, desc_file):
+    def __init__(self, top_module_name, desc_file=None, files=None):
         self.top_module_name = top_module_name
         self.desc_file = desc_file
+        self.files = files
+        assert(self.desc_file != None or self.files != None)
         self.verilator_path = str(pathlib.Path(__file__).parent.absolute()/"verilator"/"bin"/"verilator")
         self.tempdir = tempfile.mkdtemp(prefix="veripass-")
         self.x2a = None
         self.ast = None
+        self.split_v = None
+        self.is_splitted = False
 
     def compile(self):
-        verilator_arg = verilator_arg_template.format(self.verilator_path,
-                self.tempdir, self.desc_file, self.top_module_name)
+        if self.desc_file != None:
+            verilator_arg = verilator_arg_template.format(self.verilator_path,
+                    self.tempdir, self.desc_file, self.top_module_name)
+        else:
+            fls = ""
+            for f in self.files:
+                fls += f
+                fls += " "
+            verilator_arg = verilator_arg_template_single_file.format(self.verilator_path,
+                    self.tempdir, fls, self.top_module_name)
         print("Verilator: {}".format(self.verilator_path))
         print("Temp Dir: {}".format(self.tempdir))
         os.system(verilator_arg)
@@ -981,9 +1019,34 @@ class Verilator:
             get_ast()
         return self.x2a.typetable
 
-#v = Verilator(top_module_name="ccip_std_afu_wrapper",
-#        desc_file="/home/jcma/hardware-bugbase-final/grayscale-fifo-overflow/sources.txt")
-#ast = v.get_ast()
+    def get_splitted_ast(self):
+        self.compile()
+        self.x2a = VerilatorXMLToAST(self.top_module_name, self.tempdir+"/V"+self.top_module_name+".xml")
+        self.x2a.split_var = True
+        self.ast = self.x2a.parse()
+        self.is_splitted = True
+
+        codegen = ASTCodeGenerator()
+        rslt = codegen.visit(self.ast)
+        passed_v = self.tempdir+"/"+self.top_module_name+".generated.v"
+        with open(passed_v, "w+") as f:
+            f.write(rslt)
+        self.split_v = Verilator(self.top_module_name, files=[passed_v])
+        return self.split_v.get_ast()
+
+    def get_splitted_used_vars(self):
+        if self.is_splitted == False:
+            self.get_splitted_ast()
+        return self.split_v.get_used_vars()
+
+    def get_splitted_typetable(self):
+        if self.is_splitted == False:
+            self.get_splitted_ast()
+        return self.split_v.get_typetable()
+
+
+#x2a = VerilatorXMLToAST("ccip_std_afu_wrapper", "/home/jcma/veripass/work/Vccip_std_afu_wrapper.xml")
+#ast = x2a.parse()
 #codegen = ASTCodeGenerator()
 #rslt = codegen.visit(ast)
 #print(rslt)
