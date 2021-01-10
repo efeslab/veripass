@@ -3,6 +3,7 @@ import sys
 import pathlib
 import argparse
 from verilator import *
+from recordpass import *
 
 parser = argparse.ArgumentParser(description="Translate SystemVerilog to Readable Verilog")
 parser.add_argument("--top", dest="top_module", help="top module name")
@@ -21,6 +22,16 @@ if args.split:
     ast = v.get_splitted_ast()
 else:
     ast = v.get_ast()
+
+#ri = RecordInstrument("xilinx", ast, v.get_splitted_typetable(), v.get_splitted_used_vars(), "pClk")
+#ri.add_data("ccip_std_afu__DOT__data_rx__BRA__511__03A480__KET__")
+#ri.add_data("ccip_std_afu__DOT__data_rx__BRA__479__03A448__KET__")
+#ri.add_data("ccip_std_afu__DOT__data_rx__BRA__447__03A416__KET__")
+#ri.add_trigger("ccip_std_afu__DOT__mpf__DOT__mpf_edge_fiu__DOT__b__DOT__c1_fifo__DOT__fifo__DOT__data__DOT__rbw__DOT__wen_q")
+#ri.add_trigger("ccip_std_afu__DOT__mpf__DOT__mpf_edge_fiu__DOT__wr_heap_data__DOT__c0__DOT__data__DOT__m_default__DOT__altsyncram_inst__DOT__i_rden_reg_a")
+#ri.generate()
+#ast = ri.ast
+
 codegen = ASTCodeGenerator()
 rslt = codegen.visit(ast)
 with open(args.output, 'w+') as f:
