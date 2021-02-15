@@ -33,6 +33,53 @@ class variable:
                 for j in range(0, dtype.width):
                     self.dff[i].append(None)
 
+def verilog_string_to_int(s):
+    value_pos = s.find("h")
+    if value_pos >= 0:
+        return int("0x"+s[value_pos+1:], 16)
+    else:
+        value_pos = s.find("b")
+        if value_pos >= 0:
+            return int("0b"+s[value_pos+1:], 16)
+        else:
+            value_pos = s.find("'")
+            assert(value_pos == -1)
+            return int(s)
+
+class AstWidthVisitor:
+    def __init__(self, typetable, used_vars):
+        self.typetable = typetable
+        self.used_vars = used_vars
+
+    def visit(self, node):
+        method = "visit_" + node.__class__.__name__
+        func = getattr(self, method)
+        assert(func != None)
+        return func(node)
+    
+    def visit_Identifier(self, node):
+        name = node.name
+        var_dtype_id = self.used_vars[name].dtype_id
+        var_dtype = self.typetable[var_dtype_id]
+        width = var_dtype.width
+        return width
+
+    def visit_Pointer(self, node):
+        return self.visit(node.var)
+
+    def visit_Partselect(self, node):
+        msb = verilog_string_to_int(node.msb.value)
+        lsb = verilog_string_to_int(node.lsb.value)
+        return msb - lsb + 1
+
+    def visit_Unot(self, node):
+        return self.visit(node.right)
+
+    def visit_Repeat(self, node):
+        times = int(node.times.value)
+        val_width = self.visit(node.value)
+        return times*val_width
+
 class VerilatorXMLToAST:
     def __init__(self, top_module_name, xml_filename):
         self.top_module_name = top_module_name
@@ -42,6 +89,8 @@ class VerilatorXMLToAST:
 
         self.parser_stack = []
         self.split_var = False
+
+        self.blackbox_inst = {} # name -> (defname, [params], [ports])
     
     def name_format(self, name):
         s = name
@@ -56,18 +105,21 @@ class VerilatorXMLToAST:
         s = s.replace("]", "__KET__")
         return s
 
-    def verilog_string_to_int(self, s):
-        value_pos = s.find("h")
-        if value_pos >= 0:
-            return int("0x"+s[value_pos+1:], 16)
+    def get_parent_scope(self, name):
+        s = self.name_format(name)
+        r = s.rfind("__DOT__")
+        if r == -1:
+            return ""
         else:
-            value_pos = s.find("b")
-            if value_pos >= 0:
-                return int("0b"+s[value_pos+1:], 16)
-            else:
-                value_pos = s.find("'")
-                assert(value_pos == -1)
-                return int(s)
+            return s[:r]
+
+    def get_direct_name(self, name):
+        s = self.name_format(name)
+        r = s.rfind("__DOT__")
+        if r == -1:
+            return s
+        else:
+            return s[r+len("__DOT__"):]
 
     
     def parse_files(self, fls):
@@ -187,6 +239,10 @@ class VerilatorXMLToAST:
     def parse_elem_const(self, elem):
         assert(elem.tag == "const")
         return vast.IntConst(elem.get("name"))
+
+    def parse_elem_comment(self, elem):
+        assert(elem.tag == "comment")
+        return None
     
     def parse_elem_varref(self, elem):
         assert(elem.tag == "varref")
@@ -213,7 +269,6 @@ class VerilatorXMLToAST:
                             self.used_vars[var_name].dff[i] == None)
                     self.used_vars[var_name].dff[i] = False
 
-
         return r
     
     def parse_elem_sel(self, elem):
@@ -231,11 +286,11 @@ class VerilatorXMLToAST:
         if start.__class__ == vast.IntConst:
             start_value_pos = start.value.find("h")
             assert(start_value_pos != -1)
-            start_value = self.verilog_string_to_int(start.value)
+            start_value = verilog_string_to_int(start.value)
             assert(start_value == int("0x"+start.value[start_value_pos+1:], 16))
             width_value_pos = width.value.find("h")
             assert(width_value_pos != -1)
-            width_value = self.verilog_string_to_int(width.value)
+            width_value = verilog_string_to_int(width.value)
             assert(width_value == int("0x"+width.value[width_value_pos+1:], 16))
             msb = start_value + width_value - 1
             lsb = start_value
@@ -243,7 +298,7 @@ class VerilatorXMLToAST:
         else:
             width_value_pos = width.value.find("h")
             assert(width_value_pos != -1)
-            width_value = self.verilog_string_to_int(width.value)
+            width_value = verilog_string_to_int(width.value)
             assert(width_value == int("0x"+width.value[width_value_pos+1:], 16))
             if width_value == 1:
                 r = vast.Partselect(varref, start, start)
@@ -275,15 +330,15 @@ class VerilatorXMLToAST:
                     # if lsb is not IntConst, we assume this implies the whole var is dff
                     # TODO: this may not be complete, if weird things happen, an assertion
                     else:
-                        assert(r.lsb.__class__ == vast.Arrayselect or r.lsb.__class__ == vast.Partselect
+                        assert(r.lsb.__class__ == vast.Pointer or r.lsb.__class__ == vast.Partselect
                                 or r.lsb.__class__ == vast.Identifier)
                         for i in range(0, var_dtype.width):
                             assert(self.used_vars[varref.name].dff[i] == isdff or
                                     self.used_vars[varref.name].dff[i] == None)
                             self.used_vars[varref.name].dff[i] = isdff
-            elif varref.__class__ == vast.Arrayselect:
+            elif varref.__class__ == vast.Pointer:
                 arr = varref.var
-                idx = varref.idx
+                idx = varref.ptr
                 assert(arr.__class__ == vast.Identifier)
                 arr_dtype_id = self.used_vars[arr.name].dtype_id
                 arr_dtype = self.typetable[arr_dtype_id]
@@ -301,7 +356,7 @@ class VerilatorXMLToAST:
                         if idx.__class__ == vast.IntConst:
                             value_pos = idx.value.find("h")
                             assert(value_pos != -1)
-                            value = self.verilog_string_to_int(idx.value)
+                            value = verilog_string_to_int(idx.value)
                             assert(value == int("0x"+idx.value[value_pos+1:], 16))
                             for i in range(lsb, msb+1):
                                 assert(self.used_vars[arr.name].dff[value][i] == isdff or
@@ -317,12 +372,12 @@ class VerilatorXMLToAST:
                     # if lsb is not IntConst, we assume this implies the whole var is dff
                     # TODO: this may not be complete, if weird things happen, an assertion
                     else:
-                        assert(r.lsb.__class__ == vast.Arrayselect or r.lsb.__class__ == vast.Partselect
+                        assert(r.lsb.__class__ == vast.Pointer or r.lsb.__class__ == vast.Partselect
                                 or r.lsb.__class__ == vast.Identifier)
                         if idx.__class__ == vast.IntConst:
                             value_pos = idx.value.find("h")
                             assert(value_pos != -1)
-                            value = self.verilog_string_to_int(idx.value)
+                            value = verilog_string_to_int(idx.value)
                             assert(value == int("0x"+idx.value[value_pos+1:], 16))
                             for i in range(0, arr_dtype.width):
                                 assert(self.used_vars[arr.name].dff[value][i] == isdff or
@@ -358,7 +413,7 @@ class VerilatorXMLToAST:
         self.parser_stack[-1] = "assign:left"
         left = self.parse_elem(l[1])
 
-        return vast.Substitution(vast.Lvalue(left), vast.Rvalue(right))
+        return vast.BlockingSubstitution(vast.Lvalue(left), vast.Rvalue(right))
     
     def parse_elem_cond(self, elem):
         assert(elem.tag == "cond")
@@ -535,6 +590,13 @@ class VerilatorXMLToAST:
         a = self.parse_elem(l[0])
         b = self.parse_elem(l[1])
         return vast.NotEq(a, b)
+
+    def parse_elem_lognot(self, elem):
+        assert(elem.tag == "lognot")
+        l = list(elem)
+        assert(len(l) == 1)
+        a = self.parse_elem(l[0])
+        return vast.Ulnot(a)
     
     def parse_elem_not(self, elem):
         assert(elem.tag == "not")
@@ -548,8 +610,17 @@ class VerilatorXMLToAST:
         l = list(elem)
         assert(len(l) == 1)
         a = self.parse_elem(l[0])
-        width = elem.get("width")
-        return vast.Cast(a, width)
+        width = vast.IntConst(elem.get("width"))
+        v = AstWidthVisitor(self.typetable, self.used_vars)
+        tree_width = v.visit(a)
+        target_width = verilog_string_to_int(width.value)
+        append_int = vast.IntConst("{}'h0".format(target_width - tree_width))
+        item = None
+        if a.__class__ == vast.Concat:
+            items = [append_int] + a.list
+        else:
+            items = [append_int, a]
+        return vast.Concat(items)
     
     def parse_elem_replicate(self, elem):
         assert(elem.tag == "replicate")
@@ -570,7 +641,14 @@ class VerilatorXMLToAST:
         items = []
         for child in l:
             items.append(self.parse_elem(child))
-        return vast.Concat(items)
+        comb_items = []
+        for it in items:
+            if it.__class__ == vast.Concat:
+                comb_items += it.list
+            else:
+                comb_items.append(it)
+        return vast.Concat(comb_items)
+        #return vast.Concat(items)
     
     def parse_elem_cmath(self, elem):
         assert(elem.tag == "cmath")
@@ -636,7 +714,7 @@ class VerilatorXMLToAST:
                 if idx.__class__ == vast.IntConst:
                     value_pos = idx.value.find("h")
                     assert(value_pos != -1)
-                    value = self.verilog_string_to_int(idx.value)
+                    value = verilog_string_to_int(idx.value)
                     assert(value == int("0x"+idx.value[value_pos+1:], 16))
                     for i in range(0, arr_dtype.width):
                         #print(arr_dtype_id, arr_dtype.array_len, arr_dtype.width, arr.name, value,
@@ -662,7 +740,7 @@ class VerilatorXMLToAST:
                 else:
                     assert(0 and "meh")
 
-        return vast.Arrayselect(arr, idx)
+        return vast.Pointer(arr, idx)
     
     def parse_elem_if(self, elem):
         assert(elem.tag == "if")
@@ -695,7 +773,17 @@ class VerilatorXMLToAST:
         right = self.parse_elem(l[0])
         self.parser_stack[-1] = "assign:left"
         left = self.parse_elem(l[1])
-        return vast.Assign(vast.Lvalue(left), vast.Rvalue(right))
+
+        if left.__class__ == vast.Identifier and self.get_parent_scope(left.name) in self.blackbox_inst:
+            port = vast.PortArg(self.get_direct_name(left.name), right)
+            self.blackbox_inst[self.get_parent_scope(left.name)][2].append(port)
+            return None
+        elif right.__class__ == vast.Identifier and self.get_parent_scope(right.name) in self.blackbox_inst:
+            port = vast.PortArg(self.get_direct_name(right.name), left)
+            self.blackbox_inst[self.get_parent_scope(right.name)][2].append(port)
+            return None
+        else:
+            return vast.Assign(vast.Lvalue(left), vast.Rvalue(right))
     
     def parse_initial(self, initial):
         items = []
@@ -719,7 +807,8 @@ class VerilatorXMLToAST:
         items = []
         self.parser_stack.append("always")
         for elem in list(always):
-            items.append(self.parse_elem(elem))
+            if elem.tag != "comment":
+                items.append(self.parse_elem(elem))
         self.parser_stack.pop()
         if len(items) == 0:
             return None
@@ -735,17 +824,21 @@ class VerilatorXMLToAST:
             assert(l[0].tag == "sentree")
             assert(l[0].find("senitem").get("edgeType") == "COMBO")
             for assign in l[1:]:
-                assert (assign.tag != "assignalias")
+                #assert (assign.tag != "assignalias")
                 #if assign.tag == "assignalias":
                 #    continue
                 #assert(assign.tag == "assign" or assign.tag == "contassign")
                 senslist = vast.SensList([vast.Sens(vast.Identifier(""), type="all")])
                 if assign.tag == "assign" or assign.tag == "contassign":
                     self.parser_stack.append("assign")
-                    items.append(self.parse_assign(assign))
+                    asgn = self.parse_assign(assign)
+                    if asgn != None:
+                        items.append(asgn)
                     self.parser_stack.pop()
                 elif assign.tag == "always":
-                    items.append(self.parse_always(assign, senslist))
+                    alwys = self.parse_always(assign, senslist)
+                    if alwys != None:
+                        items.append(alwys)
         elif active_name == "initial":
             l = list(active)
             initial_items = []
@@ -793,7 +886,7 @@ class VerilatorXMLToAST:
     
     
         params.append(vast.Parameter("ASSERT_ON", vast.Constant("1'b1")))
-    
+
         for var in module.findall("var"):
             if not self.name_format(var.get("name")) in self.used_vars:
                 continue
@@ -812,7 +905,8 @@ class VerilatorXMLToAST:
             if var_type_width > 1:
                 width = vast.Width(vast.IntConst(str(var_type_width-1)), vast.IntConst(str(0)))
             if var_type_array_len != 0:
-                dim = vast.Width(vast.IntConst(str(var_type_array_len-1)), vast.IntConst(str(0)))
+                lth = vast.Width(vast.IntConst(str(var_type_array_len-1)), vast.IntConst(str(0)))
+                dim = vast.Dimensions([lth])
 
             anno = None
             if self.split_var and (width != None or dim != None):
@@ -864,6 +958,11 @@ class VerilatorXMLToAST:
         for active in module.find("topscope").find("scope").findall("active"):
             items += self.parse_active(active)
     
+        for inst_name in self.blackbox_inst:
+            inst_info = self.blackbox_inst[inst_name]
+            inst = vast.Instance(inst_info[0], inst_name, inst_info[2], inst_info[1])
+            inst_list = vast.InstanceList(inst_info[0], inst_info[1], [inst])
+            items.append(inst_list)
     
         ast = vast.ModuleDef(self.top_module_name, params, ports, items)
     
@@ -933,19 +1032,51 @@ class VerilatorXMLToAST:
                 self.used_vars[var_name] = variable(var_name, dtype_id, dtype)
             else:
                 self.used_vars[var_name].refcount += 1
-    
+
+    def used_blackbox_module(self, nlst):
+        top_mod = None
+        blkbox_rename = {}
+        for mod in nlst.findall("module"):
+            if mod.get("origName") != "TOP":
+                blkbox_rename[mod.get("name")] = mod.get("origName")
+            else:
+                top_mod = mod
+        for instance in top_mod.iter("instance"):
+            inst_type = instance.get("instance_type")
+            defname = instance.get("defName")
+            if inst_type == "module":
+                assert(defname in blkbox_rename)
+                blackbox_inst_entry = (blkbox_rename[defname], [], [])
+                self.blackbox_inst[self.name_format(instance.get("name"))] = blackbox_inst_entry
+                for port in list(instance):
+                    assert(port.tag == "port")
+                    assert(len(list(port)) == 1)
+                    const = list(port)[0]
+                    assert(const.tag == "const")
+                    if const.get("from_string") == "true":
+                        val = vast.StringConst(const.get("str"))
+                    else:
+                        val = vast.IntConst(verilog_string_to_int(const.get("name")))
+                    param = vast.ParamArg(port.get("name"), val)
+                    blackbox_inst_entry[1].append(param)
+
     def parse_net_list(self, nlst):
         netlist = list(nlst)
         self.parse_typetable(nlst.find("typetable"))
     
         self.used_varref(nlst)
+        self.used_blackbox_module(nlst)
     
         iface_vars = []
         for iface in nlst.findall("iface"):
             iface_vars += self.parse_iface(iface)
+
+        top_mod = None
+        for mod in nlst.findall("module"):
+            if mod.get("origName") == "TOP":
+                top_mod = mod
     
-        assert(netlist[0].tag == "module")
-        module = self.parse_module(netlist[0], iface_vars)
+        module = self.parse_module(top_mod, iface_vars)
     
         return module
     
@@ -963,14 +1094,14 @@ verilator_arg_template = """\
 {} -cc -timescale-override 10ps/10ps -Wno-WIDTH -Wno-LITENDIAN -Wno-UNPACKED -Wno-BLKANDNBLK \
 -Wno-CASEINCOMPLETE -Wno-CASEX -Wno-PINMISSING -trace-fst -trace-structs -assert -trace-max-array 65536 \
 -trace-max-width 65536 -unroll-count 65536 --Mdir {} --flatten --xml-only --xml-opt -F {} \
--Wno-SPLITVAR -comp-limit-syms 0 \
+-Wno-SPLITVAR -comp-limit-syms 0 --force-split-var \
 --top-module {}"""
 
 verilator_arg_template_single_file = """\
 {} -cc -timescale-override 10ps/10ps -Wno-WIDTH -Wno-LITENDIAN -Wno-UNPACKED -Wno-BLKANDNBLK \
 -Wno-CASEINCOMPLETE -Wno-CASEX -Wno-PINMISSING -trace-fst -trace-structs -assert -trace-max-array 65536 \
 -trace-max-width 65536 -unroll-count 65536 --Mdir {} --flatten --xml-only --xml-opt {} \
--Wno-SPLITVAR -comp-limit-syms 0 \
+-Wno-SPLITVAR -comp-limit-syms 0 --force-split-var\
 --top-module {}"""
 
 class Verilator:
