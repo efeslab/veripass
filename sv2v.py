@@ -2,9 +2,13 @@ import os
 import sys
 import pathlib
 import argparse
+import time
 from verilator import *
 from recordpass import *
 #from livetest import *
+
+#sys.path.append(str(pathlib.Path(__file__).parent.absolute()/"build"/"lib.linux-x86_64-3.9"))
+start = time.time()
 
 from pyverilog.vparser.parser import VerilogCodeParser
 from pyverilog.dataflow.modulevisitor import ModuleVisitor
@@ -13,6 +17,8 @@ from pyverilog.dataflow.bindvisitor import BindVisitor
 import pyverilog.utils.util as util
 
 from dataflowpass import dataflowtest
+
+from model.altsyncram_simple_model import AltsyncramSimpleModel
 
 parser = argparse.ArgumentParser(description="Translate SystemVerilog to Readable Verilog")
 parser.add_argument("--top", dest="top_module", help="top module name")
@@ -43,36 +49,33 @@ else:
 
 used_vars = v.get_used_vars()
 typetable = v.get_typetable()
-#lv = DependVisitor("c0Rx_data")
-#lv = DependVisitor(used_vars, typetable, "c0Rx_data")
-#lv.visit(ast)
 
 module_visitor = ModuleVisitor()
 module_visitor.visit(ast)
 modulenames = module_visitor.get_modulenames()
 moduleinfotable = module_visitor.get_moduleinfotable()
-print(modulenames)
-print(moduleinfotable)
 
+altsyncram = AltsyncramSimpleModel()
 signal_visitor = SignalVisitor(moduleinfotable, "ccip_std_afu_wrapper")
-signal_visitor.add_blackbox_module("altsyncram")
+signal_visitor.addBlackboxModule("altsyncram", altsyncram)
+#signal_visitor.addBlackboxModule("dcfifo")
+#signal_visitor.addBlackboxModule("scfifo")
 signal_visitor.start_visit()
 frametable = signal_visitor.getFrameTable()
-print(frametable)
 
-bind_visitor = BindVisitor(moduleinfotable, "ccip_std_afu_wrapper", frametable, noreorder=False)
-bind_visitor.add_blackbox_module("altsyncram")
+bind_visitor = BindVisitor(moduleinfotable, "ccip_std_afu_wrapper", frametable, noreorder=False, ignoreSyscall=True)
+bind_visitor.addBlackboxModule("altsyncram", altsyncram)
+#bind_visitor.addBlackboxModule("dcfifo")
+#bind_visitor.addBlackboxModule("scfifo")
 bind_visitor.start_visit()
 dataflow = bind_visitor.getDataflows()
 terms = dataflow.getTerms()
 binddict = dataflow.getBinddict()
 
-dft = dataflowtest(ast, terms, binddict, "ccip_std_afu_wrapper.c0Rx_data", "ccip_std_afu_wrapper.c1Tx_data")
-#dft = dataflowtest(ast, terms, binddict, "ccip_std_afu_wrapper.ccip_std_afu__DOT__data_tx",
-#        "ccip_std_afu_wrapper.ccip_std_afu__DOT__data_rx")
-termname = util.toTermname("ccip_std_afu_wrapper.c1Tx_data")
-#dft.test(termname)
-#dft.findDataflow()
+dft = dataflowtest(ast, terms, binddict,
+        "ccip_std_afu_wrapper.c0Rx_data", "ccip_std_afu_wrapper.c0Rx_rspValid", "ccip_std_afu_wrapper.c1Tx_data",
+        "ccip_std_afu_wrapper.pck_cp2af_softReset")
+dft.addBlackboxModule("altsyncram", altsyncram)
 dft.find2()
 
 termname = util.toTermname("ccip_std_afu_wrapper.c1Tx_data")
@@ -84,34 +87,5 @@ rslt = codegen.visit(ast)
 with open(args.output, 'w+') as f:
     f.write(rslt)
 
-#used_vars = v.get_used_vars()
-#typetable = v.get_typetable()
-#total = 0
-#dff = 0
-#nodff = 0
-#unknown = 0
-#for name in used_vars:
-#    varref = used_vars[name]
-#    varref_dtype = typetable[varref.dtype_id]
-#    if varref_dtype.array_len == 0:
-#        for i in range(0, varref_dtype.width):
-#            total += 1
-#            if varref.dff[i] == True:
-#                dff += 1
-#            elif varref.dff[i] == False:
-#                nodff += 1
-#            elif varref.dff[i] == None:
-#                unknown += 1
-#    else:
-#        for i in range(0, varref_dtype.array_len):
-#            for j in range(0, varref_dtype.width):
-#                total += 1
-#                if varref.dff[i][j] == True:
-#                    dff += 1
-#                elif varref.dff[i][j] == False:
-#                    nodff += 1
-#                elif varref.dff[i][j] == None:
-#                    unknown += 1
-#print(total, dff, nodff, unknown)
-#
-#
+end = time.time()
+print(end - start)

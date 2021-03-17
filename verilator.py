@@ -164,7 +164,7 @@ class VerilatorXMLToAST:
                     left = int(left.replace("32'sh", "0x").replace("32'h", "0x"), 16)
                     right = r[1].get("name")
                     right = int(right.replace("32'sh", "0x").replace("32'h", "0x"), 16)
-                    assert(right == 0)
+                    #assert(right == 0)
                     assert(left >= 0)
                     width = sub_dtype.width
                     array_len = left - right + 1
@@ -464,6 +464,14 @@ class VerilatorXMLToAST:
         a = self.parse_elem(l[0])
         b = self.parse_elem(l[1])
         return vast.Times(a, b)
+
+    def parse_elem_moddiv(self, elem):
+        assert(elem.tag == "moddiv")
+        l = list(elem)
+        assert(len(l) == 2)
+        a = self.parse_elem(l[0])
+        b = self.parse_elem(l[1])
+        return vast.Mod(a, b)
     
     def parse_elem_divs(self, elem):
         assert(elem.tag == "divs")
@@ -737,8 +745,9 @@ class VerilatorXMLToAST:
                             assert(self.used_vars[arr.name].dff[i][j] == isdff or
                                     self.used_vars[arr.name].dff[i][j] == None)
                             self.used_vars[arr.name].dff[i][j] = isdff
+                # otherwise we have no idea what's going on, leave it empty
                 else:
-                    assert(0 and "meh")
+                    pass
 
         return vast.Pointer(arr, idx)
     
@@ -896,7 +905,9 @@ class VerilatorXMLToAST:
             var_type = self.typetable[var_type_id]
             var_type_name = var_type.type_name
             var_type_width = var_type.width
-            assert(var_type_width > 0)
+            #assert(var_type_width > 0)
+            if var_type_width <= 0:
+                print("warning: {} width is 0".format(var.get("name")))
             var_type_array_len = var_type.array_len
             var_dir = var.get("dir")
     
@@ -1091,7 +1102,7 @@ class VerilatorXMLToAST:
         return ast
 
 verilator_arg_template = """\
-{} -cc -timescale-override 10ps/10ps -Wno-WIDTH -Wno-LITENDIAN -Wno-UNPACKED -Wno-BLKANDNBLK \
+{} -cc -timescale-override 10ps/10ps -Wno-WIDTH -Wno-LITENDIAN -Wno-UNPACKED -Wno-BLKANDNBLK -Wno-TIMESCALEMOD \
 -Wno-CASEINCOMPLETE -Wno-CASEX -Wno-PINMISSING -trace-fst -trace-structs -assert -trace-max-array 65536 \
 -trace-max-width 65536 -unroll-count 65536 --Mdir {} --flatten --xml-only --xml-opt -F {} \
 -Wno-SPLITVAR -comp-limit-syms 0 --force-split-var \
@@ -1142,12 +1153,12 @@ class Verilator:
 
     def get_used_vars(self):
         if self.ast == None:
-            get_ast()
+            self.get_ast()
         return self.x2a.used_vars
 
     def get_typetable(self):
         if self.ast == None:
-            get_ast()
+            self.get_ast()
         return self.x2a.typetable
 
     def get_splitted_ast(self):
