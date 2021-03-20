@@ -86,6 +86,7 @@ class VerilatorXMLToAST:
         self.xml_filename = xml_filename
         self.typetable = {} # dtype_id -> dtype()
         self.used_vars = {} # var_name -> variable()
+        self.scanned_vars = set()
 
         self.parser_stack = []
         self.split_var = False
@@ -901,6 +902,11 @@ class VerilatorXMLToAST:
                 continue
     
             var_name = self.name_format(var.get("name"))
+            if var_name in self.scanned_vars:
+                print(var_name, "rescanned, ignoring...")
+                continue
+            self.scanned_vars.add(var_name)
+
             var_type_id = var.get("dtype_id")
             var_type = self.typetable[var_type_id]
             var_type_name = var_type.type_name

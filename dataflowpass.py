@@ -741,10 +741,6 @@ class dataflowtest:
 
             rlist = []
             for itemfull in reverse_map[termname]:
-                if itemfull.dst == util.toTermname("ccip_std_afu_wrapper.ccip_std_afu__DOT__uu_grayscale_requestor__DOT__uu_grayscale_fifo__DOT__mem"):
-                    print("fuck")
-                if target.termname == util.toTermname("ccip_std_afu_wrapper.ccip_std_afu__DOT__uu_grayscale_requestor__DOT__uu_grayscale_fifo__DOT__mem"):
-                    print("fuck")
                 if target.ptr != None and (target.ptr.__class__ == df.DFIntConst or target.ptr.__class__ == df.DFEvalValue):
                     if itemfull.src_ptr.__class__ == df.DFTerminal:
                         # if the src ptr of the detected binding is a terminal while we target on a constant ptr, it should be counted
