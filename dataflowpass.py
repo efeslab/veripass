@@ -14,8 +14,13 @@ import pyverilog.dataflow.dataflow as df
 import pyverilog.utils.util as util
 import pyverilog.vparser.ast as vast
 
-from gephistreamer import graph
-from gephistreamer import streamer
+try:
+    from gephistreamer import graph
+    from gephistreamer import streamer
+    GEPHISTREAMER_AVAILABLE = True
+except ImportError:
+    print("Failed to import gephistreamer")
+    GEPHISTREAMER_AVAILABLE = False
 
 class DFBuildAstVisitor():
     def __init__(self, terms, binddict):
@@ -60,10 +65,6 @@ class DFBuildAstVisitor():
         msb = self.visit(node.msb)
         var = self.visit(node.var)
         return vast.Partselect(var, msb, lsb)
-
-    def visit_DFIntConst(self, node):
-        value = node.eval()
-        return vast.IntConst(str(value))
 
     def visit_DFPointer(self, node):
         ptr = self.visit(node.ptr)
@@ -608,7 +609,7 @@ class dataflowtest:
         self.vars = []
         self.parsed = {}
         self.gephi = gephi
-        if gephi:
+        if gephi and GEPHISTREAMER_AVAILABLE:
             try:
                 self.stream = streamer.Streamer(streamer.GephiWS(hostname="localhost", port=8080, workspace="workspace1"))
             except:
