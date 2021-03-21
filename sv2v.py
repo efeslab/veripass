@@ -5,6 +5,11 @@ import argparse
 import time
 from verilator import *
 from recordpass import *
+from passes.IdentifierRefPass import IdentifierRefPass
+from passes.TypeInfoPass import TypeInfoPass
+from passes.WidthPass import WidthPass
+from passes.CanonicalFormPass import CanonicalFormPass
+from passes.common import PassManager
 #from livetest import *
 
 #sys.path.append(str(pathlib.Path(__file__).parent.absolute()/"build"/"lib.linux-x86_64-3.9"))
@@ -83,6 +88,12 @@ termname = util.toTermname("ccip_std_afu_wrapper.c1Tx_data")
 t = terms[termname]
 b = binddict[termname]
 '''
+pm = PassManager()
+pm.register(IdentifierRefPass)
+pm.register(TypeInfoPass)
+pm.register(WidthPass)
+pm.register(CanonicalFormPass)
+pm.runAll(ast)
 
 codegen = ASTCodeGenerator()
 rslt = codegen.visit(ast)
