@@ -8,6 +8,8 @@ import pyverilog.vparser.ast as vast
 from pyverilog.ast_code_generator.codegen import ASTCodeGenerator
 import xml.etree.ElementTree as ET
 
+from utils.ValueParsing import verilog_string_to_int
+
 sys.setrecursionlimit(1000000)
 
 class dtype:
@@ -32,19 +34,6 @@ class variable:
                 self.dff.append([])
                 for j in range(0, dtype.width):
                     self.dff[i].append(None)
-
-def verilog_string_to_int(s):
-    value_pos = s.find("h")
-    if value_pos >= 0:
-        return int("0x"+s[value_pos+1:], 16)
-    else:
-        value_pos = s.find("b")
-        if value_pos >= 0:
-            return int("0b"+s[value_pos+1:], 16)
-        else:
-            value_pos = s.find("'")
-            assert(value_pos == -1)
-            return int(s)
 
 class AstWidthVisitor:
     def __init__(self, typetable, used_vars):
