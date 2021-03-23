@@ -1,5 +1,6 @@
 import pyverilog.vparser.ast as vast
 from passes.common import PassBase
+from passes.common import getWidthFromInt
 
 
 class CanonicalFormPass(PassBase):
@@ -14,7 +15,6 @@ class CanonicalFormPass(PassBase):
     """
     Do not return anything. All code transformation is inline
     """
-    _IntConst_Zero = vast.IntConst(str(0))
 
     def visit_ModuleDef(self, node):
         # type: (vast.Identifier, vast.Node)
@@ -23,8 +23,7 @@ class CanonicalFormPass(PassBase):
         instrumented_statements = []
         for identifier, val in self.promoted_wires:
             new_width = self.widthtbl[val]
-            new_wire = vast.Wire(identifier.name,
-                                 vast.Width(vast.IntConst(str(new_width-1)), self._IntConst_Zero))
+            new_wire = vast.Wire(identifier.name, getWidthFromInt(new_width))
             new_assign = vast.Assign(identifier, val)
             instrumented_statements.append(new_wire)
             instrumented_statements.append(new_assign)
