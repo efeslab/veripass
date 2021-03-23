@@ -97,3 +97,11 @@ def getConstantWidth(constant):
         return int(constant.value.split('\'')[0])
     else:
         return None
+
+"""
+width is int
+Return: vast.Width(width-1, 0)
+"""
+_IntConst_Zero = vast.IntConst(str(0))
+def getWidthFromInt(width):
+    return vast.Width(vast.IntConst(str(width-1)), _IntConst_Zero)
