@@ -9,6 +9,7 @@ from passes.IdentifierRefPass import IdentifierRefPass
 from passes.TypeInfoPass import TypeInfoPass
 from passes.WidthPass import WidthPass
 from passes.CanonicalFormPass import CanonicalFormPass
+from passes.TaskSupportPass import TaskSupportPass
 from passes.common import PassManager
 #from livetest import *
 
@@ -93,6 +94,7 @@ pm.register(IdentifierRefPass)
 pm.register(TypeInfoPass)
 pm.register(WidthPass)
 pm.register(CanonicalFormPass)
+pm.register(TaskSupportPass)
 pm.runAll(ast)
 
 codegen = ASTCodeGenerator()
@@ -102,3 +104,7 @@ with open(args.output, 'w+') as f:
 
 end = time.time()
 print(end - start)
+
+print("$display args:")
+for id, arg in enumerate(pm.state.display_args):
+    print("{}: {}".format(id, codegen.visit(arg)))
