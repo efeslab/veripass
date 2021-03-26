@@ -38,65 +38,81 @@ class AltsyncramSimpleModel:
     def instrument(self, dataflowpass, target):
         signame = str(target.termname[1])
         if not signame in self.signal2instance:
-            return None
+            return []
 
         instance, sigport = self.signal2instance[signame]
         instname = instance.name
 
-        r = None
+        r = []
         if not instname in self.instance2instrumented:
-            widthad = None
-            numwords = None
-            for param in instance.parameterlist:
-                if param.paramname == "widthad_a":
-                    widthad = vast.ParamArg("widthad", param.argname)
-                if param.paramname == "numwords_a":
-                    numwords = vast.ParamArg("numwords", param.argname)
-            clock = None
-            wren_a = None
-            address_a = None
-            address_b = None
-            for port in instance.portlist:
-                if port.portname == "clock0":
-                    clock = vast.PortArg("clock", port.argname)
-                if port.portname == "wren_a":
-                    wren_a = vast.PortArg("wren_a", port.argname)
-                if port.portname == "address_a":
-                    address_a = vast.PortArg("address_a", port.argname)
-                if port.portname == "address_b":
-                    address_b = vast.PortArg("address_b", port.argname)
-            inst = vast.Instance("altsyncram_simple_model",
+            new_paramlist = []
+            for p in instance.parameterlist:
+                if p.paramname == "width_a":
+                    new_paramlist.append(vast.ParamArg("width_a", vast.IntConst("1")))
+                elif p.paramname == "width_b":
+                    new_paramlist.append(vast.ParamArg("width_b", vast.IntConst("1")))
+                elif p.paramname == "width_byteena_a":
+                    new_paramlist.append(vast.ParamArg("width_byteena_a", vast.IntConst("1")))
+                elif p.paramname == "width_byteena_b":
+                    new_paramlist.append(vast.ParamArg("width_byteena_b", vast.IntConst("1")))
+                else:
+                    new_paramlist.append(p)
+
+            new_portlist = []
+            for p in instance.portlist:
+                if p.portname == "data_a" or p.portname == "data_b":
+                    continue
+                if p.portname == "q_a" or p.portname == "q_b":
+                    continue
+                if p.portname == "byteena_a" or p.portname == "byteena_b":
+                    new_portlist.append(vast.PortArg(p.portname, vast.IntConst("1'b1")))
+                    continue
+                new_portlist.append(p)
+
+            inst = vast.Instance("altsyncram",
                     instname+"__INSTM__",
-                    [clock, wren_a, address_a, address_b],
-                    [widthad, numwords])
-            instlist = vast.InstanceList("altsyncram_simple_model",
-                    [widthad, numwords],
+                    new_portlist,
+                    new_paramlist)
+            instlist = vast.InstanceList("altsyncram",
+                    new_paramlist,
                     [inst])
             self.instance2instrumented[instname] = instlist
-            r = instlist
+            r.append(instlist)
 
         instrumented = self.instance2instrumented[instname].instances[0]
 
         if sigport == "data_a":
             instrumented.portlist.append(
-                    vast.PortArg("valid_a", dataflowpass.get_valid_name(target)))
+                    vast.PortArg("data_a", dataflowpass.get_valid_name(target)))
         elif sigport == "q_b":
             instrumented.portlist.append(
-                    vast.PortArg("valid_b", dataflowpass.get_valid_name(target)))
-            instrumented.portlist.append(
-                    vast.PortArg("av_b", dataflowpass.get_av_name(target)))
-            instrumented.portlist.append(
-                    vast.PortArg("ai_b", dataflowpass.get_ai_name(target)))
-            instrumented.portlist.append(
-                    vast.PortArg("assign_b", dataflowpass.get_assign_name(target)))
-            instrumented.portlist.append(
-                    vast.PortArg("valid_q_b", dataflowpass.get_valid_q_name(target)))
-            instrumented.portlist.append(
-                    vast.PortArg("av_q_b", dataflowpass.get_av_q_name(target)))
-            instrumented.portlist.append(
-                    vast.PortArg("ai_q_b", dataflowpass.get_ai_q_name(target)))
-            instrumented.portlist.append(
-                    vast.PortArg("assign_q_b", dataflowpass.get_assign_q_name(target)))
+                    vast.PortArg("q_b", dataflowpass.get_valid_name(target)))
+
+            def getport(name):
+                for p in instrumented.portlist:
+                    if p.portname == name:
+                        return p.argname
+                return None
+
+            r.append(vast.Assign(
+                dataflowpass.get_av_name(target),
+                getport("q_b")))
+            r.append(vast.Assign(
+                dataflowpass.get_ai_name(target),
+                vast.Unot(getport("q_b"))))
+            r.append(vast.Assign(
+                dataflowpass.get_assign_name(target),
+                vast.And(dataflowpass.get_av_name(target), dataflowpass.get_ai_name(target))))
+
+            # FIXME: do we have to use posedge?
+            senslist = vast.SensList([vast.Sens(getport("clock0"), type="posedge")]) 
+            r.append(vast.Always(senslist, vast.Block([
+                vast.NonblockingSubstitution(dataflowpass.get_valid_q_name(target), dataflowpass.get_valid_q(target)),
+                vast.NonblockingSubstitution(dataflowpass.get_av_q_name(target), dataflowpass.get_av_q(target)),
+                vast.NonblockingSubstitution(dataflowpass.get_ai_q_name(target), dataflowpass.get_ai_q(target)),
+                vast.NonblockingSubstitution(dataflowpass.get_assign_q_name(target), dataflowpass.get_assign_q(target))
+                ])))
+                
         return r
 
 

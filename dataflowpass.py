@@ -37,10 +37,11 @@ class DFBuildAstVisitor():
         return r
 
     def generic_visit(self, node):
+        print(node.__class__)
         assert(0)
 
     def visit_DFIntConst(self, node):
-        value = node.eval()
+        value = node.value
         return vast.IntConst(str(value))
 
     def visit_DFEvalValue(self, node):
@@ -162,6 +163,9 @@ class DFDataDepVisitor:
             items += self.visit(child)
         return items
 
+    def visit_DFIntConst(self, node):
+        return [TargetEntry(util.toTermname("__CONST__"), node)]
+
     def visit_DFTerminal(self, node):
         termname = node.name
         assert(len(termname.scopechain) == 2)
@@ -230,7 +234,7 @@ class DFDataWidthVisitor:
         termmeta = self.terms[termname]
 
         if node.fixed:
-            if node.forceWidth.__name__ == int:
+            if node.forceWidth.__class__ == int:
                 return node.forceWidth
             else:
                 return self.visit(node.forceWidth)
@@ -262,6 +266,176 @@ class DFDataWidthVisitor:
         else:
             assert(0)
 
+class DFUnassignedCondVisitor:
+    def __init__(self, terms, binddict, msb, lsb):
+        self.terms = terms
+        self.binddict = binddict
+        self.target_msb = msb
+        self.target_lsb = lsb
+        self.stack = []
+        self.branch_stack = []
+        self.unassigned_cond = None
+
+        assert(msb > 0 and lsb >= 0 and msb >= lsb)
+
+    def visit(self, node):
+        method = 'visit_' + node.__class__.__name__
+        visitor = getattr(self, method, self.generic_visit)
+        self.stack.append(node)        
+        ret = visitor(node)
+        self.stack.pop()
+        return ret
+
+    def generic_visit(self, node):
+        assert(0)
+
+    def condlist_copy_dedup(self, conds):
+        new_conds = []
+        for c in conds:
+            exist = False
+            for n in new_conds:
+                if n[0] == c[0]:
+                    exist = True
+                    if n[1] != c[1]:
+                        return "invalid condlist"
+                    break
+            if exist:
+                continue
+            else:
+                new_conds.append(copy.deepcopy(c))
+        return new_conds
+
+    def build_df_condlist(self, conds):
+        r = None
+        for c in conds:
+            tmp = c[0]
+            if c[1] == False:
+                tmp = df.DFOperator([tmp], "Unot")
+            if r == None:
+                r = tmp
+            else:
+                r = df.DFOperator([r, tmp], "And")
+        return r
+
+    def update_unassigned_cond(self, conds):
+        if len(conds) == 0:
+            return
+        if self.unassigned_cond == None:
+            self.unassigned_cond = self.build_df_condlist(conds)
+        else:
+            self.unassigned_cond = df.DFOperator(
+                    [self.unassigned_cond, self.build_df_condlist(conds)],
+                    "Or")
+        
+
+    def visit_DFBranch(self, node):
+        self.branch_stack.append((node.condnode, True))
+        true_r = None
+        false_r = None
+        if node.truenode != None:
+            true_r = self.visit(node.truenode)
+        else:
+            conds_snapshot = self.condlist_copy_dedup(self.branch_stack)
+            self.update_unassigned_cond(conds_snapshot)
+        self.branch_stack.pop()
+
+        self.branch_stack.append((node.condnode, False))
+        if node.falsenode != None:
+            false_r = self.visit(node.falsenode)
+        else:
+            conds_snapshot = self.condlist_copy_dedup(self.branch_stack)
+            self.update_unassigned_cond(conds_snapshot)
+        self.branch_stack.pop()
+
+    def visit_DFOperator(self, node):
+        return
+
+    def visit_DFIntConst(self, node):
+        return
+
+    def visit_DFPartselect(self, node):
+        part_lsb = node.lsb.eval()
+        do_lsb = self.target_lsb + part_lsb
+        do_msb = self.target_msb + part_lsb
+        uav = DFUnassignedCondVisitor(self.terms, self.binddict, do_msb, do_lsb)
+        uav.visit(node.var)
+        if uav.unassigned_cond:
+            self.update_unassigned_cond(
+                    self.branch_stack + [(uav.unassigned_cond, True)])
+        return
+
+    def visit_DFPointer(self, node):
+        # FIXME: we now assume this implies an assignment
+        return
+
+    def visit_DFTerminal(self, node):
+        termname = node.name
+        assert(len(termname.scopechain) == 2)
+        termmeta = self.terms[termname]
+        if 'Rename' in termmeta.termtype:
+            binds = self.binddict[termname]
+            assert(len(binds) == 1)
+            bd = binds[0]
+            assert(bd.lsb == None and bd.msb == None and bd.ptr == None)
+            self.visit(bd.tree)
+
+    def visit_DFConcat(self, node):
+        current_conds = self.condlist_copy_dedup(self.branch_stack)
+        current_lsb = 0
+        interested_msb = self.target_msb
+        interested_lsb = self.target_lsb
+        tmp = None
+        for item in reversed(node.nextnodes):
+            wv = DFDataWidthVisitor(self.terms, self.binddict)
+            width = wv.visit(item)
+            assert(width >= 1)
+            current_msb = current_lsb + width - 1
+            if interested_lsb > current_msb:
+                continue
+            if interested_msb < current_lsb:
+                continue
+            do_lsb = None
+            do_msb = None
+            if current_msb < interested_msb:
+                do_msb = current_msb
+            else:
+                do_msb = interested_msb
+            if current_lsb > interested_lsb:
+                do_lsb = current_lsb
+            else:
+                do_lsb = interested_lsb
+            do_msb -= current_lsb
+            do_lsb -= current_lsb
+
+            uav = DFUnassignedCondVisitor(self.terms, self.binddict, do_msb, do_lsb)
+            uav.visit(item)
+            if uav.unassigned_cond == None:
+                # If one of the sub node does not have a condition under which there's
+                # no assignment, we return directly, because the target [msb:lsb] is
+                # definitely assigned.
+                return
+            if tmp == None:
+                tmp = uav.unassigned_cond
+            else:
+                tmp = df.DFOperator([tmp, uav.unassigned_cond], "And")
+            current_lsb += width
+        self.update_unassigned_cond(self.branch_stack + [(tmp, True)])
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# Specify a target and a tree. Find out which part of the tree root is originated
+# from the target.
 class DFPerciseDataDepVisitor:
     def __init__(self, terms, binddict, target):
         self.terms = terms
@@ -283,6 +457,9 @@ class DFPerciseDataDepVisitor:
         return ret
 
     def generic_visit(self, node):
+        assert(0)
+
+    def visit_DFUndefined(self, node):
         assert(0)
 
     def condlist_copy_dedup(self, conds):
@@ -359,7 +536,8 @@ class DFPerciseDataDepVisitor:
                 # We need to return read ptr.
                 rd_ptr = ptr
             elif ptr.__class__ != df.DFIntConst or self.target.ptr.__class__ != df.DFIntConst:
-                pass
+                # Also record here if the one of write ptr and read ptr are not constant
+                rd_ptr = ptr
             else:
                 return (None, None, width, None, None)
         
@@ -528,15 +706,20 @@ class DFPerciseDataDepVisitor:
 
 
 class TargetEntry:
-    def __init__(self, termname, tree=None, msb=None, lsb=None, ptr=None, rd_ptr=None):
+    def __init__(self, termname, tree=None, msb=None, lsb=None, ptr=None, rd_ptr=None,
+            rd_subling=None, wr_subling=None):
         self.termname = termname
         self.msb = msb
         self.lsb = lsb
         self.ptr = ptr
         self.tree = tree
         self.rd_ptr = rd_ptr
+        self.rd_subling = rd_subling
+        self.wr_subling = wr_subling
 
     def __eq__(self, other):
+        if other == None:
+            return False
         if (self.termname == other.termname and
                 self.msb == other.msb and
                 self.lsb == other.lsb and
@@ -552,12 +735,17 @@ class TargetEntry:
         return hash((self.termname, self.msb, self.lsb, self.ptr))
 
     def toStr(self):
-        return "{} {} {} {} {}".format(
-                str(self.termname),
-                str(self.msb),
-                str(self.lsb),
-                str(self.ptr),
-                str(self.rd_ptr))
+        if self.termname != util.toTermname("__CONST__"):
+            return "{} {} {} {} {}".format(
+                    str(self.termname),
+                    str(self.msb),
+                    str(self.lsb),
+                    str(self.ptr),
+                    str(self.rd_ptr))
+        else:
+            return "{} {}".format(
+                    str(self.termname),
+                    str(self.tree))
 
 
 class RMapEntry:
@@ -598,7 +786,7 @@ class GraphNode:
 #            items += self.visit(child)
 
 class dataflowtest:
-    def __init__(self, ast, terms, binddict, data_in, data_in_valid, data_out, reset, gephi=True):
+    def __init__(self, ast, terms, binddict, data_in, data_in_valid, data_out, reset, gephi=False):
         self.ast = ast
         self.terms = terms
         self.binddict = binddict
@@ -656,8 +844,6 @@ class dataflowtest:
             termname = left
             visited.add(termname)
             if termname in self.binddict:
-                if termname == util.toTermname("ccip_std_afu_wrapper.ccip_std_afu__DOT__mpf__DOT__mpf_edge_fiu__DOT__wr_heap_data__DOT__mem_rd1__0281__029"):
-                    print("fuck")
 
                 # FIXME: verilator didn't do x propagation
                 bds = self.binddict[termname]
@@ -668,6 +854,8 @@ class dataflowtest:
                     items = v.visit(bd.tree)
                     for itemfull in items:
                         item = itemfull.termname
+                        if item == util.toTermname("__CONST__"):
+                            continue
                         #print(item)
                         if not item in visited:
                             queue.append(item)
@@ -740,6 +928,7 @@ class dataflowtest:
             #print("=======================")
             #print("target:", termname, target.msb, target.lsb, target.ptr, ", target cnt:", len(reverse_map[termname]))
 
+
             rlist = []
             for itemfull in reverse_map[termname]:
                 if target.ptr != None and (target.ptr.__class__ == df.DFIntConst or target.ptr.__class__ == df.DFEvalValue):
@@ -768,9 +957,17 @@ class dataflowtest:
 
                 #print(itemfull.dst, tuple(r), "added" if r[0] != None else "discarded")
 
-                if r[4] != None:
-                    assert(target.rd_ptr == None or target.rd_ptr == r[4])
+                if target.rd_ptr == None and r[4] != None:
                     target.rd_ptr = r[4]
+                elif target.rd_ptr != None and r[4] != None and target.rd_ptr != r[4]:
+                    rd_subling = copy.deepcopy(target)
+                    rd_subling.rd_ptr = r[4]
+                    rd_subling.rd_subling = None
+                    t = target
+                    while t.rd_subling != None:
+                        t = t.rd_subling
+                    t.rd_subling = rd_subling
+
                 if r[0] != None:
                     rlist.append((r, item, itemfull.dst_ptr, itemfull.assigntype, itemfull.alwaysinfo))
 
@@ -801,6 +998,36 @@ class dataflowtest:
                         return (False, None, None)
                 return (True, max_msb, min_lsb)
 
+            # Whether target is assigned to a bunch of contiguous slots in an array.
+            def mergable_array(rlist):
+                if len(rlist) <= 1:
+                    return (False, None, None)
+                base_dst = rlist[0][1]
+                base_ptr = rlist[0][2]
+                base_br = rlist[0][0][3]
+                base_assigntype = rlist[0][3]
+                base_alwaysinfo = rlist[0][4]
+                base_msb = rlist[0][0][0]
+                base_lsb = rlist[0][0][1]
+                if base_ptr == None:
+                    return (False, None, None)
+                wrptr_list = []
+                for r, dst, dst_ptr, assigntype, alwaysinfo in rlist:
+                    if dst != base_dst:
+                        return (False, None, None)
+                    if base_msb != r[0]:
+                        return (False, None, None)
+                    if base_lsb != r[1]:
+                        return (False, None, None)
+                    if base_br != r[3]:
+                        return (False, None, None)
+                    if assigntype != base_assigntype:
+                        return (False, None, None)
+                    if alwaysinfo != base_alwaysinfo:
+                        return (False, None, None)
+                    wrptr_list.append(dst_ptr)
+                return (True, wrptr_list, None)
+
             merge_test = mergable(rlist)
             if merge_test[0] == True:
                 #print("----------------------")
@@ -810,10 +1037,21 @@ class dataflowtest:
                 r = (max_msb, min_lsb, rlist[0][0][2], rlist[0][0][3])
                 rlist = [(r, rlist[0][1], rlist[0][2], rlist[0][3], rlist[0][4])]
 
+            merge_array_test = mergable_array(rlist)
+            if merge_array_test[0] == True:
+                rlist = [(r, rlist[0][1], rlist[0][2], rlist[0][3], rlist[0][4])]
+
             for (r, dst, dst_ptr, assigntype, alwaysinfo) in rlist:
                 if r[0] != None:
                     dst_target = TargetEntry(dst, msb=df.DFEvalValue(r[0]),
                                         lsb=df.DFEvalValue(r[1]), ptr=dst_ptr)
+                    curr = dst_target
+                    if merge_array_test[0] == True:
+                        for i in range(1, len(merge_array_test[1])):
+                            curr.wr_subling = TargetEntry(dst, msb =df.DFEvalValue(r[0]),
+                                        lsb=df.DFEvalValue(r[1]), ptr=merge_array_test[1][i])
+                            curr = curr.wr_subling
+
                     queue.append(dst_target)
                     itemnode = getNodeByTargetEntry(dst_target)
                     e = graph.Edge(termnode, itemnode)
@@ -825,7 +1063,16 @@ class dataflowtest:
                     else:
                         need_add = True
                         for saved_src_target, saved_conds, saved_assigntype, saved_alwaysinfo in reverse_map2[dst_target]:
-                            if (saved_src_target == target and saved_conds == r[3] and
+                            def target_eq_wptr(t1, t2):
+                                if t1.rd_ptr == None or t2.rd_ptr == None:
+                                    return t1 == t2
+                                else:
+                                    t1tmp = copy.deepcopy(t1)
+                                    t2tmp = copy.deepcopy(t2)
+                                    t1tmp.ptr = None
+                                    t2tmp.ptr = None
+                                    return t1tmp == t2tmp
+                            if (target_eq_wptr(saved_src_target, target) and saved_conds == r[3] and
                                     saved_assigntype == assigntype and saved_alwaysinfo == alwaysinfo):
                                 need_add = False
                         if need_add:
@@ -864,6 +1111,60 @@ class dataflowtest:
             for src, conds, assigntype, alwaysinfo in reverse_map2[dst]:
                 queue.append(src)
 
+        unassigned_map2 = {}
+        # Till now, reverse_map2 contains the reverse mapping for all nodes from to which the destination is
+        # reachable. We need to add the nodes that directly connect to any nodes in the propagation chain.
+        for node in prop_chain:
+            if node.termname == self.data_in:
+                continue
+
+            interested_lsb = None
+            interested_msb = None
+            if node.lsb == None:
+                interested_lsb = self.terms[termname].lsb.eval()
+            else:
+                interested_lsb = node.lsb.eval()
+            if node.msb == None:
+                interested_msb = self.terms[termname].msb.eval()
+            else:
+                interested_msb = node.msb.eval()
+            termname = node.termname
+            bds = self.binddict[termname]
+            for bd in bds:
+                bd_lsb = None
+                if bd.lsb == None:
+                    bd_lsb = self.terms[termname].lsb.eval()
+                else:
+                    bd_lsb = bd.lsb.eval()
+                bd_msb = None
+                if bd.msb == None:
+                    bd_msb  = self.terms[termname].msb.eval()
+                else:
+                    bd_msb = bd.msb.eval()
+                if bd_lsb > interested_msb:
+                    continue
+                if bd_msb < interested_lsb:
+                    continue
+                do_msb = None
+                do_lsb = None
+                if bd_msb < interested_msb:
+                    do_msb = bd_msb
+                else:
+                    do_msb = interested_msb
+                if bd_lsb > interested_lsb:
+                    do_lsb = bd_lsb
+                else:
+                    do_lsb = interested_lsb
+                do_lsb -= bd_lsb
+                do_msb -= bd_lsb
+                uav = DFUnassignedCondVisitor(self.terms, self.binddict, do_msb, do_lsb)
+                uav.visit(bd.tree)
+                #print(uav.unassigned_cond, "-->", termname, interested_msb, interested_lsb, bd_msb, bd_lsb)
+
+                if not node.termname in unassigned_map2:
+                    unassigned_map2[node.termname] = []
+                unassigned_map2[node.termname].append((bd, uav.unassigned_cond))
+
         dff_map = {}
         for n in prop_chain:
             if not n in reverse_map2:
@@ -898,7 +1199,7 @@ class dataflowtest:
         self.gephi_change_node(end)
 
 
-        return (prop_chain, reverse_map2, forward_map2)
+        return (prop_chain, reverse_map2, forward_map2, unassigned_map2)
 
     def get_merged_conds(self, conds):
         if len(conds) == 0:
@@ -1049,7 +1350,24 @@ class dataflowtest:
         base = None
         for src, conds, assigntype, alwaysinfo in reverse_map[target]:
             sigma = self.get_merged_conds(conds)
-            src_av = vast.And(sigma, self.get_valid_name(src))
+            src_av = None
+            if src.rd_ptr == None:
+                src_av = vast.And(sigma, self.get_valid_name(src))
+            else:
+                # FIXME: There're a bunch of corner case not considered
+                t = src
+                v = None
+                while t != None:
+                    tmp = copy.deepcopy(t)
+                    tmp.ptr = tmp.rd_ptr
+                    tmp.rd_subling = None
+                    if v == None:
+                        v = self.get_valid_name(tmp)
+                    else:
+                        v = vast.Or(v, self.get_valid_name(tmp))
+                    t = t.rd_subling
+                src_av = vast.And(sigma, v)
+
             if base == None:
                 base = src_av
             else:
@@ -1080,21 +1398,101 @@ class dataflowtest:
     def get_ai_q(self, target):
         return self.get_ai_name(target)
 
-    # based on section 5.1 equation 3
-    def get_assign(self, target, reverse_map):
+    ## based on section 5.1 equation 3
+    #def get_assign(self, target, reverse_map):
+    #    if target in self.assign_cache:
+    #        return self.assign_cache[target]
+
+    #    base = None
+    #    for src, conds, assigntype, alwaysinfo in reverse_map[target]:
+    #        sigma = self.get_merged_conds(conds)
+    #        if base == None:
+    #            base = sigma
+    #        else:
+    #            base = vast.Or(base, sigma)
+
+    #    self.assign_cache[target] = base
+    #    return base
+
+    # Based on section 5.1 equation 3. However, we didn't maintain the propagation
+    # relationship for all variables, instead, we maintain the condition under which
+    # a variable in the propagation chain is not assigned.
+    def get_assign(self, target, unassigned_map):
         if target in self.assign_cache:
             return self.assign_cache[target]
 
-        base = None
-        for src, conds, assigntype, alwaysinfo in reverse_map[target]:
-            sigma = self.get_merged_conds(conds)
-            if base == None:
-                base = sigma
-            else:
-                base = vast.Or(base, sigma)
+        interested_lsb = None
+        interested_msb = None
+        interested_ptr = None
+        if target.lsb == None:
+            interested_lsb = self.terms[target.termname].lsb.eval()
+        else:
+            interested_lsb = target.lsb.eval()
+        if target.msb == None:
+            interested_msb = self.terms[target.termname].msb.eval()
+        else:
+            interested_msb = target.msb.eval()
+        interested_ptr = target.ptr
 
-        self.assign_cache[target] = base
-        return base
+        builder = DFBuildAstVisitor(self.terms, self.binddict)
+
+        base = None
+        interested_bds = []
+        for bd, unassigned_cond in unassigned_map[target.termname]:
+            bd_lsb = None
+            if bd.lsb == None:
+                bd_lsb = self.terms[target.termname].lsb.eval()
+            else:
+                bd_lsb = bd.lsb.eval()
+            bd_msb = None
+            if bd.msb == None:
+                bd_msb  = self.terms[target.termname].msb.eval()
+            else:
+                bd_msb = bd.msb.eval()
+
+            if bd_lsb > interested_msb:
+                continue
+            if bd_msb < interested_lsb:
+                continue
+
+            addon = None
+            if bd.ptr == None:
+                assert(interested_ptr == None)
+                interested_bds.append((bd, unassigned_cond, addon))
+            elif not isinstance(bd.ptr, df.DFIntConst) and not isinstance(bd.ptr, df.DFEvalValue):
+                addon = vast.Eq(builder.visit(interested_ptr), builder.visit(bd.ptr))
+                interested_bds.append((bd, unassigned_cond, addon))
+            elif bd.ptr.eval() == interested_ptr.eval():
+                interested_bds.append((bd, unassigned_cond, addon))
+
+        l = []
+        for bd, unassigned_cond, addon in interested_bds:
+            if unassigned_cond == None:
+                continue
+            tmp = None
+            if addon == None:
+                tmp = vast.Unot(builder.visit(unassigned_cond))
+            else:
+                tmp = vast.And(
+                        vast.Unot(builder.visit(unassigned_cond)),
+                        addon)
+            existed = False
+            for ent in l:
+                if ent == tmp:
+                    existed = True
+            if not existed:
+                l.append(tmp)
+
+        r = None
+        for ent in l:
+            if r == None:
+                r = ent
+            else:
+                r = vast.And(r, ent)
+
+        if r == None:
+            r = vast.IntConst("1'b1")
+        return r
 
     def get_assign_q(self, target):
         return self.get_assign_name(target)
@@ -1161,7 +1559,8 @@ class dataflowtest:
             if base == None:
                 base = conds
             else:
-                base = vast.Or(base, conds)
+                if base != conds:
+                    base = vast.Or(base, conds)
 
         self.prop_cache[target] = base
         return base
@@ -1205,7 +1604,7 @@ class dataflowtest:
         return self.get_good_name(target)
 
     def find2(self):
-        prop_chain, reverse_map, forward_map = self.find_prop_chain()
+        prop_chain, reverse_map, forward_map, unassigned_map = self.find_prop_chain()
         print()
 
         ldefs = []
@@ -1245,9 +1644,16 @@ class dataflowtest:
             else:
                 print("-", n.toStr())
 
+        array_instrumented = set()
         for n in prop_chain:
             if not n in reverse_map:
                 continue
+
+            if (n.ptr != None and n.ptr.__class__ != df.DFIntConst and n.ptr.__class__ != df.DFEvalValue):
+                if n.termname in array_instrumented:
+                    print("yyyy", n.termname, n.ptr)
+                    continue
+                array_instrumented.add(n.termname)
 
             ldefs.append(self.get_av_def(n))
             ldefs.append(self.get_ai_def(n))
@@ -1278,6 +1684,7 @@ class dataflowtest:
 
                 if not senslist in lnonblocking:
                     lnonblocking[senslist] = []
+
 
                 if (n.ptr != None and n.ptr.__class__ != df.DFIntConst and n.ptr.__class__ != df.DFEvalValue):
                     term = self.terms[n.termname]
@@ -1322,6 +1729,7 @@ class dataflowtest:
                 dim = term.dims[0][0].eval() - term.dims[0][1].eval() + 1
                 index_builder = DFBuildAstVisitor(self.terms, self.binddict)
                 access_ptr = n.ptr
+
                 for i in range(0, dim):
                     tmpn = copy.deepcopy(n)
                     tmpn.ptr = df.DFIntConst(str(i))
@@ -1335,9 +1743,7 @@ class dataflowtest:
                         vast.Rvalue(self.get_ai(n, reverse_map, idx_override=tmpn.ptr))))
                     lblocking.append(vast.Assign(
                         vast.Lvalue(self.get_assign_name(tmpn)),
-                        vast.Rvalue(vast.And(
-                            vast.Eq(vast.IntConst(str(i)), index_builder.visit(access_ptr)),
-                            self.get_assign(n, reverse_map)))))
+                        vast.Rvalue(self.get_assign(tmpn, unassigned_map))))
                     lblocking.append(vast.Assign(
                         vast.Lvalue(self.get_valid_name(tmpn)),
                         vast.Rvalue(self.get_valid(n, prop_chain, reverse_map, wire, idx_override=tmpn.ptr))))
@@ -1351,16 +1757,22 @@ class dataflowtest:
                     vast.Rvalue(self.get_ai(n, reverse_map))))
                 lblocking.append(vast.Assign(
                     vast.Lvalue(self.get_assign_name(n)),
-                    vast.Rvalue(self.get_assign(n, reverse_map))))
+                    vast.Rvalue(self.get_assign(n, unassigned_map))))
                 lblocking.append(vast.Assign(
                     vast.Lvalue(self.get_valid_name(n)),
                     vast.Rvalue(self.get_valid(n, prop_chain, reverse_map, wire))))
 
+        array_instrumented = set()
         for n in dff_map:
             ldefs.append(self.get_prop_def(n))
             ldefs.append(self.get_prop_q_def(n))
             ldefs.append(self.get_good_def(n))
             ldefs.append(self.get_good_q_def(n))
+
+            if (n.ptr != None and n.ptr.__class__ != df.DFIntConst and n.ptr.__class__ != df.DFEvalValue):
+                if n.termname in array_instrumented:
+                    print("zzzz", n.termname, n.ptr)
+                array_instrumented.add(n.termname)
 
             # If n is an input port of a blackbox module, the generation of prop
             # signal will be handled by the model of the module. So skip here.
@@ -1386,28 +1798,63 @@ class dataflowtest:
                 print("::::", n.toStr(), "::::", term.dims)
                 dim = term.dims[0][0].eval() - term.dims[0][1].eval() + 1
                 index_builder = DFBuildAstVisitor(self.terms, self.binddict)
-                access_ptr = n.ptr if n.rd_ptr == None else n.rd_ptr
-                for i in range(0, dim):
-                    tmpn = copy.deepcopy(n)
-                    tmpn.ptr = df.DFIntConst(str(i))
-                    lnonblocking[senslist].append(vast.NonblockingSubstitution(
-                        vast.Lvalue(self.get_prop_q_name(tmpn)),
-                        vast.Rvalue(self.get_prop_q(tmpn))))
-                    lblocking.append(vast.Assign(
-                        vast.Lvalue(self.get_prop_name(tmpn)),
-                        vast.Rvalue(
-                            vast.And(
-                                vast.Eq(vast.IntConst(str(i)), index_builder.visit(access_ptr)),
-                                self.get_prop(n, prop_chain, forward_map, dff_map)))))
 
-                    lnonblocking[senslist].append(vast.NonblockingSubstitution(
-                        vast.Lvalue(self.get_good_q_name(tmpn)),
-                        vast.Rvalue(self.get_good_q(tmpn))))
-                    lblocking.append(vast.Assign(
-                        vast.Lvalue(self.get_good_name(tmpn)),
-                        vast.Rvalue(self.get_good(tmpn))))
+                if n.rd_subling == None:
+                    access_ptr = n.ptr if n.rd_ptr == None else n.rd_ptr
+                    for i in range(0, dim):
+                        tmpn = copy.deepcopy(n)
+                        tmpn.ptr = df.DFIntConst(str(i))
+                        lnonblocking[senslist].append(vast.NonblockingSubstitution(
+                            vast.Lvalue(self.get_prop_q_name(tmpn)),
+                            vast.Rvalue(self.get_prop_q(tmpn))))
+                        lblocking.append(vast.Assign(
+                            vast.Lvalue(self.get_prop_name(tmpn)),
+                            vast.Rvalue(
+                                vast.And(
+                                    vast.Eq(vast.IntConst(str(i)), index_builder.visit(access_ptr)),
+                                    self.get_prop(n, prop_chain, forward_map, dff_map)))))
 
-                    lnonblocking[senslist].append(self.get_check(tmpn))
+                        lnonblocking[senslist].append(vast.NonblockingSubstitution(
+                            vast.Lvalue(self.get_good_q_name(tmpn)),
+                            vast.Rvalue(self.get_good_q(tmpn))))
+                        lblocking.append(vast.Assign(
+                            vast.Lvalue(self.get_good_name(tmpn)),
+                            vast.Rvalue(self.get_good(tmpn))))
+
+                        lnonblocking[senslist].append(self.get_check(tmpn))
+                else:
+                    t = n
+                    i = 0
+                    while t != None:
+                        access_ptr = t.rd_ptr
+                        assert(access_ptr.__class__ == df.DFIntConst or
+                                access_ptr.__class__ == df.DFEvalValue)
+
+                        tmpn = copy.deepcopy(n)
+                        tmpn.ptr = t.rd_ptr
+                        tmpn.rd_subling = None
+                        lnonblocking[senslist].append(vast.NonblockingSubstitution(
+                            vast.Lvalue(self.get_prop_q_name(tmpn)),
+                            vast.Rvalue(self.get_prop_q(tmpn))))
+
+                        # FIXME: here's a bunch of hack...
+                        lblocking.append(vast.Assign(
+                            vast.Lvalue(self.get_prop_name(tmpn)),
+                            vast.Rvalue(
+                                    self.get_prop(n, prop_chain, forward_map, dff_map))))
+
+                        lnonblocking[senslist].append(vast.NonblockingSubstitution(
+                            vast.Lvalue(self.get_good_q_name(tmpn)),
+                            vast.Rvalue(self.get_good_q(tmpn))))
+                        lblocking.append(vast.Assign(
+                            vast.Lvalue(self.get_good_name(tmpn)),
+                            vast.Rvalue(self.get_good(tmpn))))
+
+                        lnonblocking[senslist].append(self.get_check(tmpn))
+
+                        t = t.rd_subling
+                        i += 1
+                    assert(i == dim)
 
             else:
                 lnonblocking[senslist].append(vast.NonblockingSubstitution(
@@ -1430,15 +1877,15 @@ class dataflowtest:
             for bbm in self.blackbox_modules:
                 r = None
                 r = self.blackbox_modules[bbm].instrument(self, n)
-                if r != None:
-                    linsts.append(r)
+                if len(r) != 0:
+                    linsts += r
 
         for n in m_out:
             for bbm in self.blackbox_modules:
                 r = None
                 r = self.blackbox_modules[bbm].instrument(self, n)
-                if r != None:
-                    linsts.append(r)
+                if len(r) != 0:
+                    linsts += r
 
         # generate the valid signal for the input
         ldefs.append(self.get_valid_def(TargetEntry(self.data_in)))

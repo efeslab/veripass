@@ -293,6 +293,7 @@ class VerilatorXMLToAST:
             if width_value == 1:
                 r = vast.Partselect(varref, start, start)
             else:
+                assert(0)
                 r = vast.Partselect(varref,
                         vast.Plus(start, vast.IntConst(str(width_value-1))),
                         start)

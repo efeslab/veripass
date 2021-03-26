@@ -50,8 +50,10 @@ module altsyncram_simple_model(
 		end
 	end
 
+	logic tmp;
 	always @(posedge clock) begin
-		valid_b <= valid_ram[address_b];
+		tmp <= valid_ram[address_b];
+		valid_b <= tmp;
 	end
 
 	assign av_b = valid_b;

@@ -51,7 +51,6 @@ ast = v.get_ast()
 #ri.generate()
 #ast = ri.ast
 
-'''
 used_vars = v.get_used_vars()
 typetable = v.get_typetable()
 
@@ -80,7 +79,8 @@ binddict = dataflow.getBinddict()
 
 dft = dataflowtest(ast, terms, binddict,
         "ccip_std_afu_wrapper.c0Rx_data", "ccip_std_afu_wrapper.c0Rx_rspValid", "ccip_std_afu_wrapper.c1Tx_data",
-        "ccip_std_afu_wrapper.pck_cp2af_softReset")
+        "ccip_std_afu_wrapper.pck_cp2af_softReset",
+        gephi=True)
 dft.addBlackboxModule("altsyncram", altsyncram)
 dft.addBlackboxModule("dcfifo", dcfifo)
 dft.find2()
@@ -88,7 +88,6 @@ dft.find2()
 termname = util.toTermname("ccip_std_afu_wrapper.c1Tx_data")
 t = terms[termname]
 b = binddict[termname]
-'''
 pm = PassManager()
 pm.register(IdentifierRefPass)
 pm.register(TypeInfoPass)
