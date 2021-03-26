@@ -19,6 +19,7 @@ module dcfifo_simple_model(
 	parameter lpm_widthu;
 
 	logic valid_q_internal;
+	logic rdempty;
 	dcfifo  dcfifo_component (
 			.aclr (aclr),
 			.data (valid_data),
@@ -26,7 +27,8 @@ module dcfifo_simple_model(
 			.rdreq (rdreq),
 			.wrclk (wrclk),
 			.wrreq (wrreq),
-			.q (valid_q_internal));
+			.q (valid_q_internal),
+			.rdempty (rdempty));
    defparam
      dcfifo_component.add_usedw_msb_bit  = "ON",
      dcfifo_component.enable_ecc  = "FALSE",
@@ -45,12 +47,14 @@ module dcfifo_simple_model(
      dcfifo_component.wrsync_delaypipe  = 5;
 
 	logic rdreq_q;
+	logic rdempty_q;
 	always @(posedge rdclk) begin
 		rdreq_q <= rdreq;
+		rdempty_q <= rdempty;
 	end
 	// only consider output valid if it's a cycle behind rdreq, and
 	// the data is valid
-	assign valid_q = valid_q_internal | rdreq_q;
+	assign valid_q = valid_q_internal & rdreq_q & ~rdempty_q;
 	assign av_q = valid_q;
 	assign ai_q = ~valid_q;
 	assign assign_q = av_q | ai_q;

@@ -26,12 +26,12 @@ class DcfifoSimpleModel:
     def instrument(self, dataflowpass, target):
         signame = str(target.termname[1])
         if not signame in self.signal2instance:
-            return None
+            return []
 
         instance, sigport = self.signal2instance[signame]
         instname = instance.name
 
-        r = None
+        r = []
         if not instname in self.instance2instrumented:
             lpm_widthu = None
             lpm_numwords = None
@@ -65,7 +65,7 @@ class DcfifoSimpleModel:
                     [lpm_widthu, lpm_numwords],
                     [inst])
             self.instance2instrumented[instname] = instlist
-            r = instlist
+            r.append(instlist)
 
         instrumented = self.instance2instrumented[instname].instances[0]
 
