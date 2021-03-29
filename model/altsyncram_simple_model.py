@@ -7,6 +7,7 @@ class AltsyncramSimpleModel:
     def __init__(self):
         self.signal2instance = {}
         self.instance2instrumented = {}
+        self.instance_const_set = set()
 
     def bind(self, bindvisitor, node):
         data_a = None
@@ -15,15 +16,27 @@ class AltsyncramSimpleModel:
         q_b = None
         for port in node.portlist:
             if port.portname == "data_a":
+                if port.argname.__class__ == vast.IntConst:
+                    self.instance_const_set.add((node, port.portname))
+                    continue
                 data_a = port.argname
                 self.signal2instance[data_a.name] = (node, "data_a")
             if port.portname == "q_b":
+                if port.argname.__class__ == vast.IntConst:
+                    self.instance_const_set.add((node, port.portname))
+                    continue
                 q_b = port.argname
                 self.signal2instance[q_b.name] = (node, "q_b")
             if port.portname == "data_b":
+                if port.argname.__class__ == vast.IntConst:
+                    self.instance_const_set.add((node, port.portname))
+                    continue
                 data_b = port.argname
                 self.signal2instance[data_b.name] = (node, "data_b")
             if port.portname == "q_a":
+                if port.argname.__class__ == vast.IntConst:
+                    self.instance_const_set.add((node, port.portname))
+                    continue
                 q_a = port.argname
                 self.signal2instance[q_a.name] = (node, "q_a")
         if q_a != None and data_a != None:

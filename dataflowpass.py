@@ -1488,7 +1488,7 @@ class dataflowtest:
             if r == None:
                 r = ent
             else:
-                r = vast.And(r, ent)
+                r = vast.Or(r, ent)
 
         if r == None:
             r = vast.IntConst("1'b1")
@@ -1733,11 +1733,26 @@ class dataflowtest:
                 for i in range(0, dim):
                     tmpn = copy.deepcopy(n)
                     tmpn.ptr = df.DFIntConst(str(i))
-                    lblocking.append(vast.Assign(
-                        vast.Lvalue(self.get_av_name(tmpn)),
-                        vast.Rvalue(vast.And(
-                            vast.Eq(vast.IntConst(str(i)), index_builder.visit(access_ptr)),
-                            self.get_av(n, reverse_map)))))
+                    if n.wr_subling == None:
+                        lblocking.append(vast.Assign(
+                            vast.Lvalue(self.get_av_name(tmpn)),
+                            vast.Rvalue(vast.And(
+                                vast.Eq(vast.IntConst(str(i)), index_builder.visit(access_ptr)),
+                                self.get_av(n, reverse_map)))))
+                    else:
+                        # FIXME: this is actually a pretty dangerous hack...
+                        curr = n
+                        idx_match = None
+                        while curr != None:
+                            if idx_match == None:
+                                idx_match = vast.Eq(vast.IntConst(str(i)), index_builder.visit(curr.ptr))
+                            else:
+                                idx_match = vast.Or(idx_match,
+                                        vast.Eq(vast.IntConst(str(i)), index_builder.visit(curr.ptr)))
+                            curr = curr.wr_subling
+                        lblocking.append(vast.Assign(
+                            vast.Lvalue(self.get_av_name(tmpn)),
+                            vast.Rvalue(vast.And(idx_match, self.get_av(n, reverse_map)))))
                     lblocking.append(vast.Assign(
                         vast.Lvalue(self.get_ai_name(tmpn)),
                         vast.Rvalue(self.get_ai(n, reverse_map, idx_override=tmpn.ptr))))
