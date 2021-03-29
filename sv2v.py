@@ -26,6 +26,7 @@ from dataflowpass import dataflowtest
 
 from model.altsyncram_simple_model import AltsyncramSimpleModel
 from model.dcfifo_simple_model import DcfifoSimpleModel
+from model.scfifo_simple_model import ScfifoSimpleModel
 
 parser = argparse.ArgumentParser(description="Translate SystemVerilog to Readable Verilog")
 parser.add_argument("--top", dest="top_module", help="top module name")
@@ -61,9 +62,11 @@ moduleinfotable = module_visitor.get_moduleinfotable()
 
 altsyncram = AltsyncramSimpleModel()
 dcfifo = DcfifoSimpleModel()
+scfifo = ScfifoSimpleModel()
 signal_visitor = SignalVisitor(moduleinfotable, "ccip_std_afu_wrapper")
 signal_visitor.addBlackboxModule("altsyncram", altsyncram)
 signal_visitor.addBlackboxModule("dcfifo", dcfifo)
+signal_visitor.addBlackboxModule("scfifo", scfifo)
 #signal_visitor.addBlackboxModule("scfifo")
 signal_visitor.start_visit()
 frametable = signal_visitor.getFrameTable()
@@ -71,6 +74,7 @@ frametable = signal_visitor.getFrameTable()
 bind_visitor = BindVisitor(moduleinfotable, "ccip_std_afu_wrapper", frametable, noreorder=False, ignoreSyscall=True)
 bind_visitor.addBlackboxModule("altsyncram", altsyncram)
 bind_visitor.addBlackboxModule("dcfifo", dcfifo)
+bind_visitor.addBlackboxModule("scfifo", scfifo)
 #bind_visitor.addBlackboxModule("scfifo")
 bind_visitor.start_visit()
 dataflow = bind_visitor.getDataflows()
@@ -83,6 +87,7 @@ dft = dataflowtest(ast, terms, binddict,
         gephi=True)
 dft.addBlackboxModule("altsyncram", altsyncram)
 dft.addBlackboxModule("dcfifo", dcfifo)
+dft.addBlackboxModule("scfifo", scfifo)
 dft.find2()
 
 termname = util.toTermname("ccip_std_afu_wrapper.c1Tx_data")
