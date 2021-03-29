@@ -130,6 +130,11 @@ class DFBuildAstVisitor():
             a = self.visit(node.nextnodes[0])
             b = self.visit(node.nextnodes[1])
             return vast.Eq(a, b)
+        if node.operator == "NotEq":
+            assert(len(node.nextnodes) == 2)
+            a = self.visit(node.nextnodes[0])
+            b = self.visit(node.nextnodes[1])
+            return vast.NotEq(a, b)
         if node.operator == "Srl":
             assert(len(node.nextnodes) == 2)
             a = self.visit(node.nextnodes[0])
@@ -920,6 +925,9 @@ class dataflowtest:
             #print(termname, termmeta.msb, termmeta.lsb, termmeta.dims)
             #input('')
 
+            if termname == util.toTermname("ccip_std_afu_wrapper.ccip_std_afu__DOT__ccip_mux_U0__DOT__mgr2mux_RxPort"):
+                print("fuck")
+
             termnode = getNodeByTargetEntry(target)
 
             if termname == self.data_out:
@@ -1039,7 +1047,7 @@ class dataflowtest:
 
             merge_array_test = mergable_array(rlist)
             if merge_array_test[0] == True:
-                rlist = [(r, rlist[0][1], rlist[0][2], rlist[0][3], rlist[0][4])]
+                rlist = [(rlist[0][0], rlist[0][1], rlist[0][2], rlist[0][3], rlist[0][4])]
 
             for (r, dst, dst_ptr, assigntype, alwaysinfo) in rlist:
                 if r[0] != None:
@@ -1048,7 +1056,7 @@ class dataflowtest:
                     curr = dst_target
                     if merge_array_test[0] == True:
                         for i in range(1, len(merge_array_test[1])):
-                            curr.wr_subling = TargetEntry(dst, msb =df.DFEvalValue(r[0]),
+                            curr.wr_subling = TargetEntry(dst, msb=df.DFEvalValue(r[0]),
                                         lsb=df.DFEvalValue(r[1]), ptr=merge_array_test[1][i])
                             curr = curr.wr_subling
 
