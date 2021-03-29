@@ -1,42 +1,25 @@
 import pyverilog.vparser.ast as vast
+from utils.common import ASTNodeVisitor
 from utils.ValueParsing import verilog_string_to_int
 
 
 class PassState(object):
     pass
 
-# This comes from pyverilog.dataflow.visit.NodeVisitor
 
-
-class PassBase(object):
+class PassBase(ASTNodeVisitor):
     def __init__(self, pass_state, allowFallback=False):
+        fallback = self.visit_children if allowFallback else None
+        super().__init__(fallback)
+        self.state = pass_state
         # for debugging purpose
         self.stack = []
-        self.allowFallback = allowFallback
-        self.state = pass_state
 
-    def visit(self, node):
-        self.stack.append((node.__class__, node))
-        visitor = None
-        #　search through the inheritance chain for an existing visit_XXX function
-        for cl in node.__class__.mro():
-            method = 'visit_' + cl.__name__
-            visitor = getattr(self, method, None)
-            if visitor is not None:
-                break
-        ret = None
-        if visitor is not None:
-            ret = visitor(node)
-        elif self.allowFallback:
-            self.visit_children(node)
-        else:
-            raise NotImplementedError("Cannot find a call back")
-        self.stack.pop()
-        return ret
 
-    def visit_children(self, node):
-        for c in node.children():
-            self.visit(c)
+"""
+PassManager controls the execution of registerred passes.
+All pass should have the constructor __init__(pass_state)
+"""
 
 
 class PassManager(object):
@@ -44,6 +27,7 @@ class PassManager(object):
         self.state = PassState()
         self.registred_pass = set()
         # The order matters. Currently, pass dependencies are maintained manually
+        # TODO: add automatic pass schdeuling with dependency in mind
         self.pass_to_run = []
         self.pass_completed = set()
 
@@ -98,10 +82,13 @@ def getConstantWidth(constant):
     else:
         return None
 
+
 """
 width is int
 Return: vast.Width(width-1, 0)
 """
 _IntConst_Zero = vast.IntConst(str(0))
+
+
 def getWidthFromInt(width):
     return vast.Width(vast.IntConst(str(width-1)), _IntConst_Zero)

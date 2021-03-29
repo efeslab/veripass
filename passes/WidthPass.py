@@ -1,24 +1,58 @@
 import pyverilog.vparser.ast as vast
 from passes.common import PassBase
 from passes.common import getWidth, getConstantWidth
+from utils.common import ASTNodeVisitor
 from utils.ValueParsing import verilog_string_to_int
 
+"""
+WidthVisitor walks an AST node (can be module, always block, statments, expressions, etc.) to compute the width of all expressions in it, if width applies.
+It requires the analysis results of "IdentifierRefPass" and "TypeInfoPass"
+WidthVisitor will maintain the width results in a caching dictionary "widthtbl" {vast.Node -> int}
+If there is width information (widthtbl) in existing pass analysis results, WidthVisitor will operate on a copy of existing widthtbl.
 
-class WidthPass(PassBase):
-    """
-    Will add a `widthtbl` map in pass_state
-    the map is { vast.Node -> int }
-    """
+WidthVisitor does all heavy-lifting work for WidthPass, except for updating pass_state
+"""
 
+
+class WidthVisitor(ASTNodeVisitor):
     def __init__(self, pass_state):
-        # Do not fallback to visit_children
-        super().__init__(pass_state, False)
-        self.state.widthtbl = {}
-        self.widthtbl = self.state.widthtbl
-        self.identifierRef = self.state.identifierRef
-        self.typeInfo = self.state.typeInfo
+        super().__init__()
+        self.identifierRef = pass_state.identifierRef
+        self.typeInfo = pass_state.typeInfo
+        if pass_state.widthtbl:
+            self.widthtbl = pass_state.widthtbl.copy()
+        else:
+            self.widthtbl = {}
         assert((self.identifierRef is not None)
                and (self.typeInfo is not None))
+        ### init operator rules:
+        # NOTE: I don't know how to determine the width of vast.Power, vast.Divide, vast.Mod.
+        # So they are undefined and asserted.
+        # the resulting width is the max of both operands' width
+        arithmetic_operators = set([vast.Times, vast.Plus, vast.Minus])
+        bitwise_operators = set([vast.And, vast.Xor, vast.Xnor, vast.Or])
+        self.maxwidth_operators = arithmetic_operators | bitwise_operators
+        # the resulting width is the same as the left hand side
+        self.lhs_operators = set([vast.Sll, vast.Srl, vast.Sla, vast.Sra])
+        # the resulting width is one bit
+        self.onebit_operators = set([
+            vast.LessThan, vast.GreaterThan, vast.LessEq, vast.GreaterEq,
+            vast.Eq, vast.NotEq, vast.Eql, vast.NotEql,
+            vast.Land, vast.Lor])
+        # the resulting width is the same as the operand's width
+        self.same_width_operators = set([
+            vast.Unot,  # bitwise operators
+            vast.Uplus, vast.Uminus])
+        # the resulting width is one bit
+        redunction_operators = set(
+            [vast.Ulnot, vast.Uand, vast.Unand, vast.Uor, vast.Unor, vast.Uxor, vast.Uxnor])
+        self.onebit_Unaryoperators = redunction_operators
+
+    def visit(self, node):
+        if node in self.widthtbl:
+            return
+        else:
+            super().visit(node)
 
     def visit_ModuleDef(self, node):
         for item in node.items:
@@ -77,17 +111,9 @@ class WidthPass(PassBase):
 
     def visit_UnaryOperator(self, node):
         self.visit(node.right)
-        # the resulting width is the same as the operand's width
-        same_width_operators = set([
-            vast.Unot,  # bitwise operators
-            vast.Uplus, vast.Uminus])
-        # the resulting width is one bit
-        redunction_operators = set(
-            [vast.Ulnot, vast.Uand, vast.Unand, vast.Uor, vast.Unor, vast.Uxor, vast.Uxnor])
-        onebit_operators = redunction_operators
-        if node.__class__ in same_width_operators:
+        if node.__class__ in self.same_width_operators:
             self.widthtbl[node] = self.widthtbl[node.right]
-        elif node.__class__ in onebit_operators:
+        elif node.__class__ in self.onebit_Unaryoperators:
             self.widthtbl[node] = 1
         else:
             assert(0 and "Unknown unary operator")
@@ -100,27 +126,14 @@ class WidthPass(PassBase):
     def visit_Operator(self, node):
         self.visit(node.left)
         self.visit(node.right)
-        # NOTE: I don't know how to determine the width of vast.Power, vast.Divide, vast.Mod.
-        # So they are undefined and asserted.
-        # the resulting width is the max of both operands' width
-        arithmetic_operators = set([vast.Times, vast.Plus, vast.Minus])
-        bitwise_operators = set([vast.And, vast.Xor, vast.Xnor, vast.Or])
-        maxwidth_operators = arithmetic_operators | bitwise_operators
-        # the resulting width is the same as the left hand side
-        lhs_operators = set([vast.Sll, vast.Srl, vast.Sla, vast.Sra])
-        # the resulting width is one bit
-        onebit_operators = set([
-            vast.LessThan, vast.GreaterThan, vast.LessEq, vast.GreaterEq,
-            vast.Eq, vast.NotEq, vast.Eql, vast.NotEql,
-            vast.Land, vast.Lor])
-        if node.__class__ in maxwidth_operators:
+        if node.__class__ in self.maxwidth_operators:
             left_width = self.widthtbl[node.left]
             right_width = self.widthtbl[node.right]
             assert(left_width == right_width)
             self.widthtbl[node] = max(left_width, right_width)
-        elif node.__class__ in lhs_operators:
+        elif node.__class__ in self.lhs_operators:
             self.widthtbl[node] = self.widthtbl[node.left]
-        elif node.__class__ in onebit_operators:
+        elif node.__class__ in self.onebit_operators:
             self.widthtbl[node] = 1
         else:
             assert(0 and "Unknown binary operator")
@@ -161,3 +174,23 @@ class WidthPass(PassBase):
             return
         else:
             assert(0 and "Unhandled Node")
+
+
+class WidthPass(PassBase):
+    """
+    Will add a `widthtbl` map in pass_state
+    the map is { vast.Node -> int }
+
+    Require the analysis results of "TypeInfoPass" and "IdentifierRefPass"
+    """
+
+    def __init__(self, pass_state):
+        # Do not fallback to visit_children
+        super().__init__(pass_state, False)
+        self.state.widthtbl = {}
+        self.widthtbl = self.state.widthtbl
+        self.width_visitor = WidthVisitor(pass_state)
+
+    def visit(self, node):
+        self.width_visitor.visit(node)
+        self.state.widthtbl = self.width_visitor.widthtbl
