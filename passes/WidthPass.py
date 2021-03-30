@@ -54,6 +54,10 @@ class WidthVisitor(ASTNodeVisitor):
         else:
             super().visit(node)
 
+    def getWidth(self, node):
+        self.visit(node)
+        return self.widthtbl[node]
+
     def visit_ModuleDef(self, node):
         for item in node.items:
             if not isinstance(item, vast.Variable):
