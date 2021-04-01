@@ -755,10 +755,14 @@ class VerilatorXMLToAST:
         for i in range(1, 1+ifs_cnt):
             #print("----", i)
             if_then.append(self.parse_elem(l[i]))
+            if if_then[-1] == None:
+                if_then.pop()
         if_else = []
         for i in range(1+ifs_cnt, 1+ifs_cnt+elses_cnt):
             #print("----", i)
             if_else.append(self.parse_elem(l[i]))
+            if if_else[-1] == None:
+                if_else.pop()
         if_branch = vast.Block(if_then)
         if len(if_else) == 1 and if_else[0].__class__ == vast.IfStatement:
             else_branch = if_else[0]
@@ -801,6 +805,8 @@ class VerilatorXMLToAST:
                 self.parser_stack.pop()
             else:
                 items.append(self.parse_elem(elem))
+                if items[-1] == None:
+                    items.pop()
         self.parser_stack.pop()
         return items
     
@@ -810,6 +816,8 @@ class VerilatorXMLToAST:
         for elem in list(always):
             if elem.tag != "comment":
                 items.append(self.parse_elem(elem))
+                if items[-1] == None:
+                    items.pop()
         self.parser_stack.pop()
         if len(items) == 0:
             return None
