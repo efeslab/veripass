@@ -1003,7 +1003,7 @@ class VerilatorXMLToAST:
 
                 anno = None
                 if self.split_var and (width != None or dim != None):
-                    anno = "split_var"
+                    anno = "verilator split_var"
     
                 assert(var_dir == None)
                 if var.get("param") == "true":

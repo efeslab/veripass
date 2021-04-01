@@ -11,6 +11,7 @@ from passes.WidthPass import WidthPass
 from passes.CanonicalFormPass import CanonicalFormPass
 from passes.TaskSupportPass import TaskSupportPass, TaskSupportInstrumentationPass
 from passes.ArraySplitPass import ArraySplitPass
+from passes.FixQuartusBRAMInferPass import FixQuartusBRAMInferPass
 from passes.common import PassManager
 
 from pyverilog.vparser.parser import VerilogCodeParser
@@ -39,10 +40,11 @@ pm.register(WidthPass)
 pm.register(CanonicalFormPass)
 #pm.register(TaskSupportPass)
 pm.register(ArraySplitPass)
+pm.register(FixQuartusBRAMInferPass)
 pm.runAll(ast)
 
-for name in pm.state.array_access_info:
-    print(name, pm.state.array_access_info[name])
+#for name in pm.state.array_access_info:
+#    print(name, pm.state.array_access_info[name])
 
 codegen = ASTCodeGenerator()
 rslt = codegen.visit(ast)
