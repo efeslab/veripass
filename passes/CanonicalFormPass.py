@@ -20,14 +20,15 @@ class CanonicalFormPass(PassBase):
         # type: (vast.Identifier, vast.Node)
         self.promoted_wires = []
         self.visit_children(node)
-        instrumented_statements = []
+        instrumented_wires = []
+        instrumented_assigns = []
         for identifier, val in self.promoted_wires:
             new_width = self.widthtbl[val]
             new_wire = vast.Wire(identifier.name, getWidthFromInt(new_width))
             new_assign = vast.Assign(identifier, val)
-            instrumented_statements.append(new_wire)
-            instrumented_statements.append(new_assign)
-        node.items = instrumented_statements + node.items
+            instrumented_wires.append(new_wire)
+            instrumented_assigns.append(new_assign)
+        node.items = instrumented_wires + node.items + instrumented_assigns
 
     def visit_Partselect(self, node):
         self.visit_children(node)

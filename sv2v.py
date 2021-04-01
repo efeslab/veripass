@@ -32,12 +32,12 @@ v = Verilator(top_module_name=args.top_module, desc_file=args.desc_file)
 ast = v.get_ast()
 
 pm = PassManager()
-pm.register(TaskSupportInstrumentationPass)
+#pm.register(TaskSupportInstrumentationPass)
 pm.register(IdentifierRefPass)
 pm.register(TypeInfoPass)
 pm.register(WidthPass)
 pm.register(CanonicalFormPass)
-pm.register(TaskSupportPass)
+#pm.register(TaskSupportPass)
 pm.register(ArraySplitPass)
 pm.runAll(ast)
 
@@ -48,6 +48,3 @@ codegen = ASTCodeGenerator()
 rslt = codegen.visit(ast)
 with open(args.output, 'w+') as f:
     f.write(rslt)
-
-end = time.time()
-print(end - start)
