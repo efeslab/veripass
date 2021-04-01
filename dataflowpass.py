@@ -816,6 +816,7 @@ class dataflowtest:
         self.instrumented_name_cache = {}
         self.instrumented_def_cache = {}
         self.blackbox_modules = {}
+        self.filtered_set = set()
 
     def addBlackboxModule(self, modulename, model):
         self.blackbox_modules[modulename] = model
@@ -1601,7 +1602,7 @@ class dataflowtest:
                 vast.Unot(vast.Or(self.get_good_q_name(tgt), self.get_prop_q_name(tgt))),
             self.get_assign_q_name(tgt)),
                 vast.SingleStatement(vast.SystemCall("display", [
-                    vast.StringConst("[%0t]" + target.toStr()),
+                    vast.StringConst("[%0t] %%loss: " + target.toStr()),
                     vast.SystemCall("time", [])
                 ])),
                 None)
@@ -1929,7 +1930,17 @@ class dataflowtest:
                     senslist,
                     vast.Block(lnonblocking[senslist])))
 
+    def set_filtered(self, fl):
+        with open(fl, "r") as f:
+            log = f.read()
+        log = log.splitlines()
+        for l in log:
+            l = l.split()
+            if len(l) < 3:
+                continue
+            if l[1] == "\%loss":
+                self.filtered_set.add(util.toTermname(l[2]))
 
-
-        
-
+    def check_filtered(self, node):
+        assert(isinstance(node, str))
+        return node in self.filtered_set:

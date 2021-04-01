@@ -10,6 +10,7 @@ from passes.TypeInfoPass import TypeInfoPass
 from passes.WidthPass import WidthPass
 from passes.CanonicalFormPass import CanonicalFormPass
 from passes.TaskSupportPass import TaskSupportPass
+from passes.ArraySplitPass import ArraySplitPass
 from passes.common import PassManager
 #from livetest import *
 
@@ -43,14 +44,9 @@ print("Split Variables: {}".format(args.split))
 v = Verilator(top_module_name=args.top_module, desc_file=args.desc_file)
 ast = v.get_ast()
 
-#ri = RecordInstrument("xilinx", ast, v.get_splitted_typetable(), v.get_splitted_used_vars(), "pClk")
-#ri.add_data("ccip_std_afu__DOT__data_rx__BRA__511__03A480__KET__")
-#ri.add_data("ccip_std_afu__DOT__data_rx__BRA__479__03A448__KET__")
-#ri.add_data("ccip_std_afu__DOT__data_rx__BRA__447__03A416__KET__")
-#ri.add_trigger("ccip_std_afu__DOT__mpf__DOT__mpf_edge_fiu__DOT__b__DOT__c1_fifo__DOT__fifo__DOT__data__DOT__rbw__DOT__wen_q")
-#ri.add_trigger("ccip_std_afu__DOT__mpf__DOT__mpf_edge_fiu__DOT__wr_heap_data__DOT__c0__DOT__data__DOT__m_default__DOT__altsyncram_inst__DOT__i_rden_reg_a")
-#ri.generate()
-#ast = ri.ast
+pm = PassManager()
+pm.register(ArraySplitPass)
+pm.runAll(ast)
 
 used_vars = v.get_used_vars()
 typetable = v.get_typetable()
@@ -90,17 +86,6 @@ dft.addBlackboxModule("dcfifo", dcfifo)
 dft.addBlackboxModule("scfifo", scfifo)
 dft.find2()
 
-termname = util.toTermname("ccip_std_afu_wrapper.c1Tx_data")
-t = terms[termname]
-b = binddict[termname]
-pm = PassManager()
-pm.register(IdentifierRefPass)
-pm.register(TypeInfoPass)
-pm.register(WidthPass)
-pm.register(CanonicalFormPass)
-pm.register(TaskSupportPass)
-pm.runAll(ast)
-
 codegen = ASTCodeGenerator()
 rslt = codegen.visit(ast)
 with open(args.output, 'w+') as f:
@@ -108,7 +93,3 @@ with open(args.output, 'w+') as f:
 
 end = time.time()
 print(end - start)
-
-print("$display args:")
-for id, arg in enumerate(pm.state.display_args):
-    print("{}: {}".format(id, codegen.visit(arg)))

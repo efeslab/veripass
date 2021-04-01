@@ -909,8 +909,7 @@ class VerilatorXMLToAST:
     
             width = None
             dim = None
-            if var_type_width > 1:
-                width = vast.Width(vast.IntConst(str(var_type_width-1)), vast.IntConst(str(0)))
+            width = vast.Width(vast.IntConst(str(var_type_width-1)), vast.IntConst(str(0)))
             if var_type_array_len != 0:
                 lth = vast.Width(vast.IntConst(str(var_type_array_len-1)), vast.IntConst(str(0)))
                 dim = vast.Dimensions([lth])

@@ -38,7 +38,7 @@ pm.register(TypeInfoPass)
 pm.register(WidthPass)
 pm.register(CanonicalFormPass)
 pm.register(TaskSupportPass)
-#pm.register(ArraySplitPass)
+pm.register(ArraySplitPass)
 pm.runAll(ast)
 
 for name in pm.state.array_access_info:
