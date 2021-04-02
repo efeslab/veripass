@@ -1,6 +1,6 @@
 [submodule "Pyverilog"]
 	path = Pyverilog
-	url = git@github.com:mjc0608/Pyverilog.git
+	url = git@github.com:efeslab/Pyverilog.git
 [submodule "verilator"]
 	path = verilator
 	url = git@github.com:efeslab/verilator.git

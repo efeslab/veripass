@@ -11,7 +11,6 @@ from passes.WidthPass import WidthPass
 from passes.CanonicalFormPass import CanonicalFormPass
 from passes.TaskSupportPass import TaskSupportPass, TaskSupportInstrumentationPass
 from passes.ArraySplitPass import ArraySplitPass
-from passes.FixQuartusBRAMInferPass import FixQuartusBRAMInferPass
 from passes.common import PassManager
 
 from pyverilog.vparser.parser import VerilogCodeParser
@@ -22,6 +21,7 @@ parser.add_argument("--top", dest="top_module", help="top module name")
 parser.add_argument("-F", dest="desc_file", help="description file path, similar to verilator")
 parser.add_argument("-o", dest="output", help="output path")
 parser.add_argument("--split", default=False, action="store_true", dest="split", help="whether to split variable")
+parser.add_argument("--tasksupport", default=False, action="store_true", help="whether to run TaskSupportPass")
 
 args = parser.parse_args()
 print("Top Module: {}".format(args.top_module))
@@ -33,14 +33,15 @@ v = Verilator(top_module_name=args.top_module, desc_file=args.desc_file)
 ast = v.get_ast()
 
 pm = PassManager()
-#pm.register(TaskSupportInstrumentationPass)
+if args.tasksupport:
+    pm.register(TaskSupportInstrumentationPass)
 pm.register(IdentifierRefPass)
 pm.register(TypeInfoPass)
 pm.register(WidthPass)
 pm.register(CanonicalFormPass)
-#pm.register(TaskSupportPass)
-pm.register(ArraySplitPass)
-pm.register(FixQuartusBRAMInferPass)
+if args.tasksupport:
+    pm.register(TaskSupportPass)
+#pm.register(ArraySplitPass)
 pm.runAll(ast)
 
 #for name in pm.state.array_access_info:
