@@ -10,9 +10,13 @@ from pyverilog.vparser.parser import VerilogCodeParser
 from pyverilog.dataflow.modulevisitor import ModuleVisitor
 from pyverilog.dataflow.signalvisitor import SignalVisitor
 from pyverilog.dataflow.bindvisitor import BindVisitor
+from pyverilog.utils.scope import ScopeLabel, ScopeChain
 import pyverilog.dataflow.dataflow as df
 import pyverilog.utils.util as util
 import pyverilog.vparser.ast as vast
+
+from passes.common import getConstantWidth
+
 
 try:
     from gephistreamer import graph
@@ -46,7 +50,7 @@ class DFBuildAstVisitor():
 
     def visit_DFEvalValue(self, node):
         value = node.eval()
-        return vast.IntConst(str(value))
+        return vast.IntConst(str(node.width)+"'h"+hex(value)[2:])
 
     def visit_DFTerminal(self, node):
         termname = node.name
@@ -270,6 +274,23 @@ class DFDataWidthVisitor:
             return self.visit(node.falsenode)
         else:
             assert(0)
+
+    def visit_DFIntConst(self, node):
+        return getConstantWidth(node)
+
+    def visit_DFEvalValue(self, node):
+        return node.width
+
+    def visit_DFOperator(self, node):
+        if node.operator in {"Add", "Minus", "Or", "And", "Xor"}:
+            left_width = self.visit(node.nextnodes[0])
+            right_width = self.visit(node.nextnodes[1])
+            assert(left_width == right_width)
+            return left_width
+        elif node.operator in {"Uand", "Uor"}:
+            return 1
+        assert(0)
+
 
 class DFUnassignedCondVisitor:
     def __init__(self, terms, binddict, msb, lsb):
@@ -1684,7 +1705,7 @@ class dataflowtest:
 
             # for nonblocking assignments, we need to generate the _q signal
             if assigntype == "nonblocking":
-                senslist = alwaysinfo.original_senslist
+                senslist = (alwaysinfo.original_senslist, alwaysinfo.clock_name, alwaysinfo.clock_edge)
 
                 ldefs.append(self.get_av_q_def(n))
                 ldefs.append(self.get_ai_q_def(n))
@@ -1701,9 +1722,11 @@ class dataflowtest:
                     dim = term.dims[0][0].eval() - term.dims[0][1].eval() + 1
                     index_builder = DFBuildAstVisitor(self.terms, self.binddict)
                     access_ptr = n.ptr if n.rd_ptr == None else n.rd_ptr
+                    access_ptr_width = DFDataWidthVisitor(self.terms, self.binddict).visit(access_ptr)
+                    width_prefix = str(access_ptr_width) + "'h"
                     for i in range(0, dim):
                         tmpn = copy.deepcopy(n)
-                        tmpn.ptr = df.DFIntConst(str(i))
+                        tmpn.ptr = df.DFIntConst(width_prefix+hex(i)[2:])
                         lnonblocking[senslist].append(vast.NonblockingSubstitution(
                             vast.Lvalue(self.get_av_q_name(tmpn)),
                             vast.Rvalue(self.get_av_q(tmpn))))
@@ -1738,15 +1761,17 @@ class dataflowtest:
                 dim = term.dims[0][0].eval() - term.dims[0][1].eval() + 1
                 index_builder = DFBuildAstVisitor(self.terms, self.binddict)
                 access_ptr = n.ptr
+                access_ptr_width = DFDataWidthVisitor(self.terms, self.binddict).visit(access_ptr)
+                width_prefix = str(access_ptr_width) + "'h"
 
                 for i in range(0, dim):
                     tmpn = copy.deepcopy(n)
-                    tmpn.ptr = df.DFIntConst(str(i))
+                    tmpn.ptr = df.DFIntConst(width_prefix+hex(i)[2:])
                     if n.wr_subling == None:
                         lblocking.append(vast.Assign(
                             vast.Lvalue(self.get_av_name(tmpn)),
                             vast.Rvalue(vast.And(
-                                vast.Eq(vast.IntConst(str(i)), index_builder.visit(access_ptr)),
+                                vast.Eq(vast.IntConst(width_prefix+hex(i)[2:]), index_builder.visit(access_ptr)),
                                 self.get_av(n, reverse_map)))))
                     else:
                         # FIXME: this is actually a pretty dangerous hack...
@@ -1754,10 +1779,10 @@ class dataflowtest:
                         idx_match = None
                         while curr != None:
                             if idx_match == None:
-                                idx_match = vast.Eq(vast.IntConst(str(i)), index_builder.visit(curr.ptr))
+                                idx_match = vast.Eq(vast.IntConst(width_prefix+hex(i)[2:]), index_builder.visit(curr.ptr))
                             else:
                                 idx_match = vast.Or(idx_match,
-                                        vast.Eq(vast.IntConst(str(i)), index_builder.visit(curr.ptr)))
+                                        vast.Eq(vast.IntConst(width_prefix+hex(i)[2:]), index_builder.visit(curr.ptr)))
                             curr = curr.wr_subling
                         lblocking.append(vast.Assign(
                             vast.Lvalue(self.get_av_name(tmpn)),
@@ -1812,7 +1837,7 @@ class dataflowtest:
             dst, conds, assigntype, alwaysinfo = reverse_map[n][0]
             if alwaysinfo == None:
                 assert(0)
-            senslist = alwaysinfo.original_senslist
+            senslist = (alwaysinfo.original_senslist, alwaysinfo.clock_name, alwaysinfo.clock_edge)
 
             if not senslist in lnonblocking:
                 lnonblocking[senslist] = []
@@ -1825,9 +1850,11 @@ class dataflowtest:
 
                 if n.rd_subling == None:
                     access_ptr = n.ptr if n.rd_ptr == None else n.rd_ptr
+                    access_ptr_width = DFDataWidthVisitor(self.terms, self.binddict).visit(access_ptr)
+                    width_prefix = str(access_ptr_width) + "'h"
                     for i in range(0, dim):
                         tmpn = copy.deepcopy(n)
-                        tmpn.ptr = df.DFIntConst(str(i))
+                        tmpn.ptr = df.DFIntConst(width_prefix+hex(i)[2:])
                         lnonblocking[senslist].append(vast.NonblockingSubstitution(
                             vast.Lvalue(self.get_prop_q_name(tmpn)),
                             vast.Rvalue(self.get_prop_q(tmpn))))
@@ -1835,7 +1862,7 @@ class dataflowtest:
                             vast.Lvalue(self.get_prop_name(tmpn)),
                             vast.Rvalue(
                                 vast.And(
-                                    vast.Eq(vast.IntConst(str(i)), index_builder.visit(access_ptr)),
+                                    vast.Eq(vast.IntConst(width_prefix+hex(i)[2:]), index_builder.visit(access_ptr)),
                                     self.get_prop(n, prop_chain, forward_map, dff_map)))))
 
                         lnonblocking[senslist].append(vast.NonblockingSubstitution(
@@ -1845,7 +1872,8 @@ class dataflowtest:
                             vast.Lvalue(self.get_good_name(tmpn)),
                             vast.Rvalue(self.get_good(tmpn))))
 
-                        lnonblocking[senslist].append(self.get_check(tmpn))
+                        if not self.check_filtered(tmpn.termname):
+                            lnonblocking[senslist].append(self.get_check(tmpn))
                 else:
                     t = n
                     i = 0
@@ -1874,7 +1902,8 @@ class dataflowtest:
                             vast.Lvalue(self.get_good_name(tmpn)),
                             vast.Rvalue(self.get_good(tmpn))))
 
-                        lnonblocking[senslist].append(self.get_check(tmpn))
+                        if not self.check_filtered(tmpn.termname):
+                            lnonblocking[senslist].append(self.get_check(tmpn))
 
                         t = t.rd_subling
                         i += 1
@@ -1895,7 +1924,8 @@ class dataflowtest:
                     vast.Lvalue(self.get_good_name(n)),
                     vast.Rvalue(self.get_good(n))))
 
-                lnonblocking[senslist].append(self.get_check(n))
+                if not self.check_filtered(n.termname):
+                    lnonblocking[senslist].append(self.get_check(n))
 
         for n in m_in:
             for bbm in self.blackbox_modules:
@@ -1926,8 +1956,9 @@ class dataflowtest:
         self.ast.items += linsts
         self.ast.items += lblocking
         for senslist in lnonblocking:
+            slist = vast.SensList([vast.Sens(vast.Identifier(str(senslist[1][1])), type=senslist[2])])
             self.ast.items.append(vast.Always(
-                    senslist,
+                    slist,
                     vast.Block(lnonblocking[senslist])))
 
     def set_filtered(self, fl):
@@ -1936,11 +1967,11 @@ class dataflowtest:
         log = log.splitlines()
         for l in log:
             l = l.split()
-            if len(l) < 3:
-                continue
-            if l[1] == "\%loss":
-                self.filtered_set.add(util.toTermname(l[2]))
+            assert(len(l) == 3)
+            print(l)
+            self.filtered_set.add(util.toTermname(l[0]))
+        print(self.filtered_set)
 
     def check_filtered(self, node):
-        assert(isinstance(node, str))
-        return node in self.filtered_set:
+        assert(isinstance(node, ScopeChain))
+        return node in self.filtered_set

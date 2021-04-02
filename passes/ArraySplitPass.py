@@ -189,6 +189,9 @@ class _ArrayFullSplitPass(PassBase):
     def visit_SystemCall(self, node):
         return node
 
+    def visit_CommentStmt(self, node):
+        return node
+
 
 """
 The interface which calls the info pass and the full split pass.

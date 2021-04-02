@@ -1,4 +1,4 @@
-module dcfifo_simple_model(
+module scfifo_simple_model(
 	input logic aclr,
 	input logic valid_data,
 	input logic clock,
@@ -20,7 +20,7 @@ module dcfifo_simple_model(
 	logic valid_q_internal;
 	logic empty;
     /*verilator lint_off PINMISSING*/
-	dcfifo  dcfifo_component (
+	scfifo  scfifo_component (
 			.aclr (aclr),
 			.data (valid_data),
 			.clock (clock),

@@ -9,12 +9,10 @@ from passes.IdentifierRefPass import IdentifierRefPass
 from passes.TypeInfoPass import TypeInfoPass
 from passes.WidthPass import WidthPass
 from passes.CanonicalFormPass import CanonicalFormPass
-from passes.TaskSupportPass import TaskSupportPass
+from passes.TaskSupportPass import TaskSupportPass, TaskSupportInstrumentationPass
 from passes.ArraySplitPass import ArraySplitPass
 from passes.common import PassManager
-#from livetest import *
 
-#sys.path.append(str(pathlib.Path(__file__).parent.absolute()/"build"/"lib.linux-x86_64-3.9"))
 start = time.time()
 
 from pyverilog.vparser.parser import VerilogCodeParser
@@ -33,13 +31,12 @@ parser = argparse.ArgumentParser(description="Translate SystemVerilog to Readabl
 parser.add_argument("--top", dest="top_module", help="top module name")
 parser.add_argument("-F", dest="desc_file", help="description file path, similar to verilator")
 parser.add_argument("-o", dest="output", help="output path")
-parser.add_argument("--split", default=False, action="store_true", dest="split", help="whether to split variable")
+parser.add_argument("--filtered-list", default=None, dest="filtered_list", help="file of ignored signals")
 
 args = parser.parse_args()
 print("Top Module: {}".format(args.top_module))
 print("Desc File: {}".format(args.desc_file))
 print("Output Path: {}".format(args.output))
-print("Split Variables: {}".format(args.split))
 
 v = Verilator(top_module_name=args.top_module, desc_file=args.desc_file)
 ast = v.get_ast()
@@ -63,7 +60,6 @@ signal_visitor = SignalVisitor(moduleinfotable, "ccip_std_afu_wrapper")
 signal_visitor.addBlackboxModule("altsyncram", altsyncram)
 signal_visitor.addBlackboxModule("dcfifo", dcfifo)
 signal_visitor.addBlackboxModule("scfifo", scfifo)
-#signal_visitor.addBlackboxModule("scfifo")
 signal_visitor.start_visit()
 frametable = signal_visitor.getFrameTable()
 
@@ -71,7 +67,6 @@ bind_visitor = BindVisitor(moduleinfotable, "ccip_std_afu_wrapper", frametable, 
 bind_visitor.addBlackboxModule("altsyncram", altsyncram)
 bind_visitor.addBlackboxModule("dcfifo", dcfifo)
 bind_visitor.addBlackboxModule("scfifo", scfifo)
-#bind_visitor.addBlackboxModule("scfifo")
 bind_visitor.start_visit()
 dataflow = bind_visitor.getDataflows()
 terms = dataflow.getTerms()
@@ -84,7 +79,20 @@ dft = dataflowtest(ast, terms, binddict,
 dft.addBlackboxModule("altsyncram", altsyncram)
 dft.addBlackboxModule("dcfifo", dcfifo)
 dft.addBlackboxModule("scfifo", scfifo)
+if args.filtered_list != None:
+    dft.set_filtered(args.filtered_list)
 dft.find2()
+
+# post instrumentation passes, for compilation purpose
+pm = PassManager()
+pm.register(TaskSupportInstrumentationPass)
+pm.register(IdentifierRefPass)
+pm.register(TypeInfoPass)
+pm.register(WidthPass)
+pm.register(CanonicalFormPass)
+pm.register(TaskSupportPass)
+#pm.register(ArraySplitPass)
+pm.runAll(ast)
 
 codegen = ASTCodeGenerator()
 rslt = codegen.visit(ast)
