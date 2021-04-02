@@ -58,6 +58,9 @@ def getWidth(width):
         return verilog_string_to_int(width.msb.value) - verilog_string_to_int(width.lsb.value) + 1
     elif width.msb is width.lsb:  # like wire_a[b:b]
         return 1
+    elif isinstance(width.msb, vast.Plus) and \
+        width.msb.left is width.lsb and isinstance(width.msb.right, vast.IntConst):
+        return int(width.msb.right.value) + 1
     else:
         raise NotImplementedError("Cannot parse this width information")
 

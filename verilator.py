@@ -293,10 +293,11 @@ class VerilatorXMLToAST:
             if width_value == 1:
                 r = vast.Partselect(varref, start, start)
             else:
-                assert(0)
+                # wire[base+const:base]
                 r = vast.Partselect(varref,
                         vast.Plus(start, vast.IntConst(str(width_value-1))),
                         start)
+            # TODO: do we want to handle other types of variable width? like [ a -: b ] ?
 
         ## DFF detection
         if self.parser_stack[0] != "initial":
