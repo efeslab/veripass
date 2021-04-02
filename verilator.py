@@ -232,7 +232,7 @@ class VerilatorXMLToAST:
 
     def parse_elem_comment(self, elem):
         assert(elem.tag == "comment")
-        return None
+        return vast.CommentStmt(elem.get('name'))
     
     def parse_elem_varref(self, elem):
         assert(elem.tag == "varref")
@@ -887,10 +887,9 @@ class VerilatorXMLToAST:
     
         params.append(vast.Parameter("ASSERT_ON", vast.Constant("1'b1")))
 
-        for var in module.findall("var"):
+        for var in module.findall('var'):
             if not self.name_format(var.get("name")) in self.used_vars:
                 continue
-    
             var_name = self.name_format(var.get("name"))
             if var_name in self.scanned_vars:
                 print(var_name, "rescanned, ignoring...")
@@ -914,9 +913,12 @@ class VerilatorXMLToAST:
                 lth = vast.Width(vast.IntConst(str(var_type_array_len-1)), vast.IntConst(str(0)))
                 dim = vast.Dimensions([lth])
 
-            anno = None
+            anno = var.get('tag')
             if self.split_var and (width != None or dim != None):
-                anno = "split_var"
+                if anno:
+                    raise NotImplementedError("annotation cannot use for both metacomments and split_var")
+                else:
+                    anno = "verilator split_var"
 
             if var_dir == "input":
                 assert(dim == None)
