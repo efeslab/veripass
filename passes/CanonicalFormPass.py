@@ -1,6 +1,7 @@
 import pyverilog.vparser.ast as vast
 from passes.common import PassBase
 from passes.common import getWidthFromInt
+from passes.WidthPass import WidthVisitor
 
 
 class CanonicalFormPass(PassBase):
@@ -11,7 +12,7 @@ class CanonicalFormPass(PassBase):
     def __init__(self, pass_state):
         # Fallback to visit_children
         super().__init__(pass_state, True)
-        self.widthtbl = self.state.widthtbl
+        self.width_visitor = WidthVisitor(pass_state)
     """
     Do not return anything. All code transformation is inline
     """
@@ -23,7 +24,7 @@ class CanonicalFormPass(PassBase):
         instrumented_wires = []
         instrumented_assigns = []
         for identifier, val in self.promoted_wires:
-            new_width = self.widthtbl[val]
+            new_width = self.width_visitor.getWidth(val)
             new_wire = vast.Wire(identifier.name, getWidthFromInt(new_width))
             new_assign = vast.Assign(identifier, val)
             instrumented_wires.append(new_wire)

@@ -20,7 +20,7 @@ class WidthVisitor(ASTNodeVisitor):
         self.identifierRef = pass_state.identifierRef
         self.typeInfo = pass_state.typeInfo
         if pass_state.widthtbl:
-            self.widthtbl = pass_state.widthtbl.copy()
+            self.widthtbl = pass_state.widthtbl
         else:
             self.widthtbl = {}
         assert((self.identifierRef is not None)
