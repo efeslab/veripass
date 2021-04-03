@@ -935,9 +935,7 @@ class VerilatorXMLToAST:
                 assert(dim == None)
                 p = vast.Ioport(vast.Output(var_name, width=width), vast.Logic(var_name, width=width))
                 ports.append(p)
-            else:
-                if not self.name_format(var.get("name")) in self.used_vars:
-                    continue
+            elif var_name in self.used_vars:
                 assert(var_dir == None)
                 if var.get("param") == "true":
                     l = list(var)
