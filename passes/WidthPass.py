@@ -4,27 +4,34 @@ from passes.common import getWidth, getConstantWidth
 from utils.common import ASTNodeVisitor
 from utils.ValueParsing import verilog_string_to_int
 
-"""
-WidthVisitor walks an AST node (can be module, always block, statments, expressions, etc.) to compute the width of all expressions in it, if width applies.
-It requires the analysis results of "IdentifierRefPass" and "TypeInfoPass"
-WidthVisitor will maintain the width results in a caching dictionary "widthtbl" {vast.Node -> int}
-If there is width information (widthtbl) in existing pass analysis results, WidthVisitor will operate on a copy of existing widthtbl.
-
-WidthVisitor does all heavy-lifting work for WidthPass, except for updating pass_state
-"""
-
 
 class WidthVisitor(ASTNodeVisitor):
-    def __init__(self, pass_state):
+    """
+    WidthVisitor walks an AST node (can be module, always block, statments, expressions, etc.) to compute the width of all expressions in it, if width applies.
+    It requires the analysis results of "IdentifierRefPass" and "TypeInfoPass"
+    WidthVisitor will maintain the width results in a caching dictionary "widthtbl" {vast.Node -> int}
+    If there is width information (widthtbl) in existing pass analysis results, WidthVisitor will operate on a copy of existing widthtbl.
+
+    WidthVisitor does all heavy-lifting work for WidthPass, except for updating pass_state
+    """
+
+    def __init__(self, pass_state=None):
+        """
+        If pass_state is available, works on it
+        If no pass_state, derived class should define visit_Identifier and visit_Pointer itself
+        """
         super().__init__()
-        self.identifierRef = pass_state.identifierRef
-        self.typeInfo = pass_state.typeInfo
-        if pass_state.widthtbl:
-            self.widthtbl = pass_state.widthtbl
+        if pass_state:
+            self.identifierRef = pass_state.identifierRef
+            self.typeInfo = pass_state.typeInfo
+            if pass_state.widthtbl:
+                self.widthtbl = pass_state.widthtbl
+            else:
+                self.widthtbl = {}
+            assert((self.identifierRef is not None)
+                   and (self.typeInfo is not None))
         else:
             self.widthtbl = {}
-        assert((self.identifierRef is not None)
-               and (self.typeInfo is not None))
         ### init operator rules:
         # NOTE: I don't know how to determine the width of vast.Power, vast.Divide, vast.Mod.
         # So they are undefined and asserted.
