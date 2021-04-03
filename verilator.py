@@ -897,8 +897,6 @@ class VerilatorXMLToAST:
         params.append(vast.Parameter("ASSERT_ON", vast.Constant("1'b1")))
 
         for var in module.findall('var'):
-            if not self.name_format(var.get("name")) in self.used_vars:
-                continue
             var_name = self.name_format(var.get("name"))
             if var_name in self.scanned_vars:
                 print(var_name, "rescanned, ignoring...")
@@ -938,6 +936,8 @@ class VerilatorXMLToAST:
                 p = vast.Ioport(vast.Output(var_name, width=width), vast.Logic(var_name, width=width))
                 ports.append(p)
             else:
+                if not self.name_format(var.get("name")) in self.used_vars:
+                    continue
                 assert(var_dir == None)
                 if var.get("param") == "true":
                     l = list(var)

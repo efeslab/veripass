@@ -9,7 +9,7 @@ from passes.IdentifierRefPass import IdentifierRefPass
 from passes.TypeInfoPass import TypeInfoPass
 from passes.WidthPass import WidthPass
 from passes.CanonicalFormPass import CanonicalFormPass
-from passes.TaskSupportPass import TaskSupportPass, TaskSupportInstrumentationPass
+from passes.TaskSupportPass import TaskSupportPass
 from passes.ArraySplitPass import ArraySplitPass
 from passes.common import PassManager
 
@@ -85,7 +85,6 @@ dft.find2()
 
 # post instrumentation passes, for compilation purpose
 pm = PassManager()
-pm.register(TaskSupportInstrumentationPass)
 pm.register(IdentifierRefPass)
 pm.register(TypeInfoPass)
 pm.register(WidthPass)

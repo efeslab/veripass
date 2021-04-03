@@ -19,8 +19,8 @@ class _ArrayPointerInfoPass(PassBase):
     True means the array is eligible to a full split
     """
 
-    def __init__(self, pass_state):
-        super().__init__(pass_state, True)
+    def __init__(self, pm, pass_state):
+        super().__init__(pm, pass_state, True)
         self.state.array_access_info = {}
 
     def visit_Pointer(self, node):
@@ -35,8 +35,8 @@ This pass performs a full split to all eligible arrays.
 """
 
 class _ArrayFullSplitPass(PassBase):
-    def __init__(self, pass_state):
-        super().__init__(pass_state, False)
+    def __init__(self, pm, pass_state):
+        super().__init__(pm, pass_state, False)
         self.array_access_info = self.state.array_access_info
 
     def visit_ModuleDef(self, node):
@@ -198,10 +198,10 @@ The interface which calls the info pass and the full split pass.
 """
 
 class ArraySplitPass(PassBase):
-    def __init__(self, pass_state):
-        super().__init__(pass_state, False)
-        self.infopass = _ArrayPointerInfoPass(self.state)
-        self.fullsplitpass = _ArrayFullSplitPass(self.state)
+    def __init__(self, pm, pass_state):
+        super().__init__(pm, pass_state, False)
+        self.infopass = _ArrayPointerInfoPass(pm, self.state)
+        self.fullsplitpass = _ArrayFullSplitPass(pm, self.state)
 
     def visit(self, node):
         self.infopass.visit(node)
