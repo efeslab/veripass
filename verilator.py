@@ -6,6 +6,8 @@ import pathlib
 sys.path.append(str(pathlib.Path(__file__).parent.absolute()/"Pyverilog"))
 import pyverilog.vparser.ast as vast
 from pyverilog.ast_code_generator.codegen import ASTCodeGenerator
+from passes.common import getWidthFromInt
+from passes.WidthPass import WidthVisitor
 import xml.etree.ElementTree as ET
 
 from utils.ValueParsing import verilog_string_to_int
@@ -35,39 +37,22 @@ class variable:
                 for j in range(0, dtype.width):
                     self.dff[i].append(None)
 
-class AstWidthVisitor:
+class AstWidthVisitor(WidthVisitor):
     def __init__(self, typetable, used_vars):
+        super().__init__()
         self.typetable = typetable
         self.used_vars = used_vars
 
-    def visit(self, node):
-        method = "visit_" + node.__class__.__name__
-        func = getattr(self, method)
-        assert(func != None)
-        return func(node)
-    
     def visit_Identifier(self, node):
         name = node.name
         var_dtype_id = self.used_vars[name].dtype_id
         var_dtype = self.typetable[var_dtype_id]
         width = var_dtype.width
-        return width
+        self.widthtbl[node] = width
 
     def visit_Pointer(self, node):
-        return self.visit(node.var)
-
-    def visit_Partselect(self, node):
-        msb = verilog_string_to_int(node.msb.value)
-        lsb = verilog_string_to_int(node.lsb.value)
-        return msb - lsb + 1
-
-    def visit_Unot(self, node):
-        return self.visit(node.right)
-
-    def visit_Repeat(self, node):
-        times = int(node.times.value)
-        val_width = self.visit(node.value)
-        return times*val_width
+        self.visit(node.var)
+        self.widthtbl[node] = self.widthtbl[node.var]
 
 class VerilatorXMLToAST:
     def __init__(self, top_module_name, xml_filename):
@@ -81,6 +66,7 @@ class VerilatorXMLToAST:
         self.split_var = False
 
         self.blackbox_inst = {} # name -> (defname, [params], [ports])
+        self.astwidth_visitor = AstWidthVisitor(self.typetable, self.used_vars)
     
     def name_format(self, name):
         s = name
@@ -605,14 +591,20 @@ class VerilatorXMLToAST:
         a = self.parse_elem(l[0])
         return vast.Unot(a)
     
+    def parse_elem_negate(self, elem):
+        assert(elem.tag == "negate")
+        l = list(elem)
+        assert(len(l) == 1)
+        a = self.parse_elem(l[0])
+        return vast.Uminus(a)
+
     def parse_elem_extend(self, elem):
         assert(elem.tag == "extend")
         l = list(elem)
         assert(len(l) == 1)
         a = self.parse_elem(l[0])
         width = vast.IntConst(elem.get("width"))
-        v = AstWidthVisitor(self.typetable, self.used_vars)
-        tree_width = v.visit(a)
+        tree_width = self.astwidth_visitor.getWidth(a)
         target_width = verilog_string_to_int(width.value)
         append_int = vast.IntConst("{}'h0".format(target_width - tree_width))
         item = None
@@ -1006,9 +998,9 @@ class VerilatorXMLToAST:
                 width = None
                 dim = None
                 if var_type_width > 1:
-                    width = vast.Width(vast.IntConst(str(var_type_width-1)), vast.IntConst(str(0)))
+                    width = getWidthFromInt(var_type_width)
                 if var_type_array_len != 0:
-                    dim = vast.Width(vast.IntConst(str(var_type_array_len-1)), vast.IntConst(str(0)))
+                    dim = vast.Dimensions([getWidthFromInt(var_type_array_len)])
 
                 anno = None
                 if self.split_var and (width != None or dim != None):
