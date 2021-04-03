@@ -189,9 +189,9 @@ class WidthPass(PassBase):
     Require the analysis results of "TypeInfoPass" and "IdentifierRefPass"
     """
 
-    def __init__(self, pass_state):
+    def __init__(self, pm, pass_state):
         # Do not fallback to visit_children
-        super().__init__(pass_state, False)
+        super().__init__(pm, pass_state, False)
         self.state.widthtbl = {}
         self.widthtbl = self.state.widthtbl
         self.width_visitor = WidthVisitor(pass_state)

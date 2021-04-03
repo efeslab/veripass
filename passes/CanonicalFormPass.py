@@ -9,9 +9,9 @@ class CanonicalFormPass(PassBase):
     Will use the width info from pass_state
     """
 
-    def __init__(self, pass_state):
+    def __init__(self, pm, pass_state):
         # Fallback to visit_children
-        super().__init__(pass_state, True)
+        super().__init__(pm, pass_state, True)
         self.width_visitor = WidthVisitor(pass_state)
     """
     Do not return anything. All code transformation is inline
@@ -26,6 +26,7 @@ class CanonicalFormPass(PassBase):
         for identifier, val in self.promoted_wires:
             new_width = self.width_visitor.getWidth(val)
             new_wire = vast.Wire(identifier.name, getWidthFromInt(new_width))
+            self.notify_new_Variable(new_wire)
             new_assign = vast.Assign(identifier, val)
             instrumented_wires.append(new_wire)
             instrumented_assigns.append(new_assign)
