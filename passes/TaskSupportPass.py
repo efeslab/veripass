@@ -19,7 +19,7 @@ Configurations:
 """
 CYCLE_COUNTER_WIDTH = 64
 CYCLE_COUNTER_NAME = "TASKPASS_cycle_counter"
-RESET_NAME = "pck_cp2af_softReset"
+RESET_NAME = "ccip_std_afu__DOT__reset"
 
 
 class IfConditionStack(object):
