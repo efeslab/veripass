@@ -77,7 +77,9 @@ Get a python integer representation of a pyverilog Width (vast.Node)
 
 def getWidth(width):
     if (isinstance(width.msb, vast.IntConst) and isinstance(width.lsb, vast.IntConst)):
-        return verilog_string_to_int(width.msb.value) - verilog_string_to_int(width.lsb.value) + 1
+        width = verilog_string_to_int(width.msb.value) - verilog_string_to_int(width.lsb.value) + 1
+        assert(width >= 0)
+        return width
     elif width.msb is width.lsb:  # like wire_a[b:b]
         return 1
     elif isinstance(width.msb, vast.Plus) and \
