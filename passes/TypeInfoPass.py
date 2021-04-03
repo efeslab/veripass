@@ -20,9 +20,9 @@ class TypeInfoPass(PassBase):
     the map is { vast.Node -> TypeInfo }
     """
 
-    def __init__(self, pass_state):
+    def __init__(self, pm, pass_state):
         # Do not fallback to visit_children
-        super().__init__(pass_state, False)
+        super().__init__(pm, pass_state, False)
         self.state.typeInfo = {}
         self.typeInfo = self.state.typeInfo
 
@@ -59,3 +59,9 @@ class TypeInfoPass(PassBase):
         else:
             dimensions = None
         self.typeInfo[node] = TypeInfo(width, dimensions)
+
+    def isListening(self):
+        return True
+
+    def event_new_Variable(self, node):
+        self.visit_Variable(node)

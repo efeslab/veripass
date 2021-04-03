@@ -14,9 +14,9 @@ class IdentifierRefPass(PassBase):
     The map is {str -> vast.Node}
     """
 
-    def __init__(self, pass_state):
+    def __init__(self, pm, pass_state):
         # Do not fallback to visit_children
-        super().__init__(pass_state, False)
+        super().__init__(pm, pass_state, False)
         self.state.identifierRef = {}
         self.identifierRef = self.state.identifierRef
 
@@ -39,3 +39,9 @@ class IdentifierRefPass(PassBase):
 
     def visit_Variable(self, node):
         self.identifierRef[node.name] = node
+
+    def isListening(self):
+        return True
+
+    def event_new_Variable(self, node):
+        self.visit_Variable(node)

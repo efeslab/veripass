@@ -74,9 +74,9 @@ class TaskSupportPass(PassBase):
     Require the analysis result of "WidthPass"
     """
 
-    def __init__(self, pass_state):
+    def __init__(self, pm, pass_state):
         # Allow fallback to visit_children
-        super().__init__(pass_state, True)
+        super().__init__(pm, pass_state, True)
         self.bitwise2logical = BitwiseToLogicalVisitor(pass_state)
         self.ast2sympy = CondASTToSymPyVisitor()
         self.sympy2ast = CondSymPyToASTVisitor(self.ast2sympy.rsymbolmap)
