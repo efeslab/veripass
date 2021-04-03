@@ -19,7 +19,6 @@ Configurations:
 """
 CYCLE_COUNTER_WIDTH = 64
 CYCLE_COUNTER_NAME = "TASKPASS_cycle_counter"
-CYCLE_NAME = "pClk"
 RESET_NAME = "pck_cp2af_softReset"
 
 
@@ -65,16 +64,19 @@ class IfConditionStack(object):
 
 class TaskSupportPass(PassBase):
     """
-    Will collect task-related info:
-    1. Track $display arguments except for formatting string
-        TODO: revisit this document
-        a. Will add `display_args` (dict of {vast.Node, vast.Node}) to pass_state
-            each entry maps a display argument to accumulated conditions.
-
     Require the analysis result of "WidthPass"
+
+    Will instrument task-related supporting code:
+    1. Add a cycle counter addition always block
+    2. Promote the path constraints of display tasks as new wires
+    3. Instantiate a SignalTapII IP to trace both path constraints and the args of display tasks
+    Will add the following vast node to pass_state:
+    1. `cycle_cnt` (vast.Identifier), a cycle counter for $time
+    2. `reset` (vast.Identifier), the reset signal
     """
 
-    def __init__(self, pm, pass_state):
+    def __init__(self, pm, pass_state, reset_name=RESET_NAME,
+                 cycle_cnt_name=CYCLE_COUNTER_NAME, cnt_width=CYCLE_COUNTER_WIDTH):
         # Allow fallback to visit_children
         super().__init__(pm, pass_state, True)
         self.bitwise2logical = BitwiseToLogicalVisitor(pass_state)
@@ -91,20 +93,40 @@ class TaskSupportPass(PassBase):
         self.display_cond2arg = {}
         # dict {sympy expressions => vast.Node (display expression)}
         self.display_cond2display = {}
-        self.cnt = self.state.cycle_cnt
+        # instrumentation related
+        self.reset = vast.Identifier(reset_name)
+        self.cnt = vast.Identifier(cycle_cnt_name)
+        self.cnt_name = cycle_cnt_name
+        self.cnt_width = cnt_width
+        # update pass_state
+        self.state.reset = self.reset
+        self.state.cycle_cnt = self.cnt
 
     def visit_ModuleDef(self, node):
+        # self.inferred_clock contains all sens of all always to which display tasks belong
+        # it is a dict {str(identifier name) => int (frequency)}
+        self.inferred_clock = {}
         for c in node.items:
             # filter all variable items, since there will be no tasks
             if not isinstance(c, vast.Variable):
                 self.visit(c)
-        cond_wire_defs, stp_instance = self.getSTPInstrumentation()
+        # choose the most frequently used clock signal
+        clock_name, freq = max(self.inferred_clock.items(), key=lambda x: x[1])
+        clock = vast.Identifier(clock_name)
+        new_cnt_def, new_cnt_always = self.create_cycle_counter_statements(
+            clock)
+        cond_wire_defs, stp_instance = self.getSTPInstrumentation(clock)
+        node.items.insert(0, new_cnt_def)
+        node.items.append(new_cnt_always)
         node.items.extend(cond_wire_defs)
         node.items.append(stp_instance)
 
     def visit_Always(self, node):
+        # self.always is to track the senslist of always to which each display tasks belong
+        self.always = node
         self.if_cond_stack = IfConditionStack()
         self.visit_children(node)
+        self.always = None
 
     def visit_IfStatement(self, node):
         if node.true_statement:
@@ -120,6 +142,13 @@ class TaskSupportPass(PassBase):
 
     def visit_SystemCall(self, node):
         if node.syscall == "display":
+            # track sens list for clock inference
+            for sens in self.always.sens_list.list:
+                # display are assumed to only be sensitive to simple identifiers
+                assert(isinstance(sens.sig, vast.Identifier))
+                self.inferred_clock[sens.sig.name] = self.inferred_clock.get(
+                    sens.sig.name, 0) + 1
+            # track path constraints
             cond = self.if_cond_stack.getCond()
             cond_converted = self.bitwise2logical.visit(cond)
             # this simplify convert conditions to CNF
@@ -156,7 +185,7 @@ class TaskSupportPass(PassBase):
             all_cond_wire_identifiers.append(identifier)
         return (new_module_items, all_cond_wire_identifiers)
 
-    def getSTPInstrumentation(self):
+    def getSTPInstrumentation(self, clk):
         # encode display path constriants/conditions
         cond2id = {}
         all_conds = []
@@ -181,52 +210,25 @@ class TaskSupportPass(PassBase):
         trace_enable_signal = reduce(vast.Lor, cond_wire_identifiers)
         trace_data = vast.Concat(cond_wire_identifiers + all_args)
         stp_port_config = {
-            "acq_data_in" : trace_data,
-            "acq_trigger_in" : vast.Ulnot(self.state.reset),
-            "storage_enable" : trace_enable_signal,
-            "acq_clk" : self.state.clk
+            "acq_data_in": trace_data,
+            "acq_trigger_in": vast.Ulnot(self.state.reset),
+            "storage_enable": trace_enable_signal,
+            "acq_clk": clk
         }
         stp_config = IntelSignalTapIIConfig(stp_port_config)
         stp_config.param_config["SLD_DATA_BITS"] = total_trace_width
         stpinstance = IntelSignalTapII(stp_config)
         return (cond_wire_defs, stpinstance.getInstance())
 
+    def create_cycle_counter_statements(self, clk):
+        """
+        Return: [logic declaration, always_block]
+        Which first declare the cycle counter logic, then instrument an always block to reset and increment it.
+        """
 
-class TaskSupportInstrumentationPass(PassBase):
-    """
-    Will instrument task-related supporting code:
-    1. A cycle counter addition always block
-    Will add the following vast node to pass_state:
-    1. `cycle_cnt` (vast.Identifier), a cycle counter for $time
-    2. `clk` (vast.Identifier), the input clock signal
-    3. `reset` (vast.Identifier), the reset signal
-    """
-
-    def __init__(self, pass_state,
-                 cycle_name=CYCLE_NAME, reset_name=RESET_NAME,
-                 cycle_cnt_name=CYCLE_COUNTER_NAME, cnt_width=CYCLE_COUNTER_WIDTH):
-        super().__init__(pass_state, False)
-        # define shared Identifiers
-        self.clk = vast.Identifier(cycle_name)
-        self.reset = vast.Identifier(reset_name)
-        self.cnt = vast.Identifier(cycle_cnt_name)
-        # save cycle counter settings
-        self.cycle_cnt_name = cycle_cnt_name
-        self.cnt_width = cnt_width
-        # update pass_state
-        self.state.cycle_cnt = self.cnt
-        self.state.reset = self.reset
-        self.state.clk = self.clk
-
-    """
-    Return: [logic declaration, always_block]
-    Which first declare the cycle counter logic, then instrument an always block to reset and increment it.
-    """
-
-    def create_cycle_counter_statements(self):
-        new_logic = vast.Logic(self.cycle_cnt_name,
-                               getWidthFromInt(self.cnt_width))
-        sens_list = vast.SensList([vast.Sens(self.clk)])
+        new_logic = vast.Logic(self.cnt_name, getWidthFromInt(self.cnt_width))
+        self.notify_new_Variable(new_logic)
+        sens_list = vast.SensList([vast.Sens(clk)])
         always_statement = vast.Block([
             vast.IfStatement(self.reset,
                              # cnt <= 64'h0
@@ -242,7 +244,4 @@ class TaskSupportInstrumentationPass(PassBase):
                              )
         ])
         new_always = vast.Always(sens_list, always_statement)
-        return [new_logic, new_always]
-
-    def visit_ModuleDef(self, node):
-        node.items = self.create_cycle_counter_statements() + node.items
+        return (new_logic, new_always)

@@ -9,7 +9,7 @@ from passes.IdentifierRefPass import IdentifierRefPass
 from passes.TypeInfoPass import TypeInfoPass
 from passes.WidthPass import WidthPass
 from passes.CanonicalFormPass import CanonicalFormPass
-from passes.TaskSupportPass import TaskSupportPass, TaskSupportInstrumentationPass
+from passes.TaskSupportPass import TaskSupportPass
 from passes.ArraySplitPass import ArraySplitPass
 from passes.common import PassManager
 
@@ -33,8 +33,6 @@ v = Verilator(top_module_name=args.top_module, desc_file=args.desc_file)
 ast = v.get_ast()
 
 pm = PassManager()
-if args.tasksupport:
-    pm.register(TaskSupportInstrumentationPass)
 pm.register(IdentifierRefPass)
 pm.register(TypeInfoPass)
 pm.register(WidthPass)
