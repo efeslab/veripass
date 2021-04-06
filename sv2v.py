@@ -11,6 +11,7 @@ from passes.WidthPass import WidthPass
 from passes.CanonicalFormPass import CanonicalFormPass
 from passes.TaskSupportPass import TaskSupportPass
 from passes.ArraySplitPass import ArraySplitPass
+from passes.Logic2RegPass import Logic2RegPass
 from passes.common import PassManager
 
 from pyverilog.vparser.parser import VerilogCodeParser
@@ -33,6 +34,7 @@ v = Verilator(top_module_name=args.top_module, desc_file=args.desc_file)
 ast = v.get_ast()
 
 pm = PassManager()
+#pm.register(Logic2RegPass)
 pm.register(IdentifierRefPass)
 pm.register(TypeInfoPass)
 pm.register(WidthPass)
