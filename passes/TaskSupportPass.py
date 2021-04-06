@@ -19,7 +19,6 @@ Configurations:
 """
 CYCLE_COUNTER_WIDTH = 64
 CYCLE_COUNTER_NAME = "TASKPASS_cycle_counter"
-RESET_NAME = "ccip_std_afu__DOT__reset"
 
 
 class IfConditionStack(object):
@@ -75,8 +74,8 @@ class TaskSupportPass(PassBase):
     2. `reset` (vast.Identifier), the reset signal
     """
 
-    def __init__(self, pm, pass_state, reset_name=RESET_NAME,
-                 cycle_cnt_name=CYCLE_COUNTER_NAME, cnt_width=CYCLE_COUNTER_WIDTH):
+    def __init__(self, pm, pass_state, cycle_cnt_name=CYCLE_COUNTER_NAME,
+            cnt_width=CYCLE_COUNTER_WIDTH):
         # Allow fallback to visit_children
         super().__init__(pm, pass_state, True)
         self.bitwise2logical = BitwiseToLogicalVisitor(pass_state)
@@ -94,8 +93,6 @@ class TaskSupportPass(PassBase):
         # dict {sympy expressions => vast.Node (display expression)}
         self.display_cond2display = {}
         # instrumentation related
-        if self.state.reset is None:
-            self.state.reset = vast.Identifier(reset_name)
         self.cnt = vast.Identifier(cycle_cnt_name)
         self.cnt_name = cycle_cnt_name
         self.cnt_width = cnt_width
@@ -141,7 +138,8 @@ class TaskSupportPass(PassBase):
             self.if_cond_stack.pop()
 
     def visit_SystemCall(self, node):
-        if node.syscall == "display":
+        # display could also appear in the initial block, which we will skip
+        if self.always and node.syscall == "display" and node.anno and node.anno == "debug_display":
             # track sens list for clock inference
             for sens in self.always.sens_list.list:
                 # display are assumed to only be sensitive to simple identifiers

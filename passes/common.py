@@ -3,8 +3,10 @@ from utils.common import ASTNodeVisitor
 from utils.ValueParsing import verilog_string_to_int
 
 
+RESET_NAME = "ccip_std_afu__DOT__reset"
 class PassState(object):
-    pass
+    def __init__(self):
+        self.reset = vast.Identifier(RESET_NAME)
 
 
 class PassBase(ASTNodeVisitor):
