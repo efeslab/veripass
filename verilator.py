@@ -678,7 +678,7 @@ class VerilatorXMLToAST:
                 args[0] = vast.StringConst(fmt.replace("%m", arg.get("name")))
                 continue
             args.append(self.parse_elem(arg))
-        return vast.SingleStatement(vast.SystemCall("display", args))
+        return vast.SingleStatement(vast.SystemCall("display", args, anno=elem.get("tag")))
     
     def parse_elem_finish(self, elem):
         assert(elem.tag == "finish")
