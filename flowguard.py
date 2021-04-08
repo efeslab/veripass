@@ -11,6 +11,7 @@ from passes.WidthPass import WidthPass
 from passes.CanonicalFormPass import CanonicalFormPass
 from passes.TaskSupportPass import TaskSupportPass
 from passes.ArraySplitPass import ArraySplitPass
+from passes.RemoveStopPass import RemoveStopPass
 from passes.common import PassManager
 
 start = time.time()
@@ -32,18 +33,30 @@ parser.add_argument("--top", dest="top_module", help="top module name")
 parser.add_argument("-F", dest="desc_file", help="description file path, similar to verilator")
 parser.add_argument("-o", dest="output", help="output path")
 parser.add_argument("--filtered-list", default=None, dest="filtered_list", help="file of ignored signals")
+parser.add_argument("--source", default=None, dest="source", help="source of the data flow")
+parser.add_argument("--sink", default=None, dest="sink", help="sink of the data flow")
+parser.add_argument("--source-valid", default=None, dest="source_valid", help="the valid signal for the source")
+parser.add_argument("--reset", default=None, dest="reset", help="the reset signal")
+parser.add_argument("--ignore-stop", default=False, dest="ignore_stop", action="store_true", help="ignore $stop")
 
 args = parser.parse_args()
 print("Top Module: {}".format(args.top_module))
 print("Desc File: {}".format(args.desc_file))
 print("Output Path: {}".format(args.output))
 
+assert(args.source and args.sink and args.source_valid and args.reset)
+
 v = Verilator(top_module_name=args.top_module, desc_file=args.desc_file)
 ast = v.get_ast()
 
 pm = PassManager()
 pm.register(ArraySplitPass)
+pm.register(IdentifierRefPass)
+pm.register(TypeInfoPass)
 pm.runAll(ast)
+
+identifierRef = pm.state.identifierRef
+typeInfo = pm.state.typeInfo
 
 used_vars = v.get_used_vars()
 typetable = v.get_typetable()
@@ -72,10 +85,12 @@ dataflow = bind_visitor.getDataflows()
 terms = dataflow.getTerms()
 binddict = dataflow.getBinddict()
 
-dft = dataflowtest(ast, terms, binddict,
-        "ccip_std_afu_wrapper.c0Rx_data", "ccip_std_afu_wrapper.c0Rx_rspValid", "ccip_std_afu_wrapper.c1Tx_data",
-        "ccip_std_afu_wrapper.pck_cp2af_softReset",
-        gephi=True)
+source = args.top_module + "." + args.source
+source_valid = args.top_module + "." + args.source_valid
+sink = args.top_module + "." + args.sink
+reset = args.top_module + "." + args.reset
+
+dft = dataflowtest(ast, terms, binddict, source, source_valid, sink, reset, identifierRef, typeInfo, gephi=True)
 dft.addBlackboxModule("altsyncram", altsyncram)
 dft.addBlackboxModule("dcfifo", dcfifo)
 dft.addBlackboxModule("scfifo", scfifo)
@@ -90,7 +105,8 @@ pm.register(TypeInfoPass)
 pm.register(WidthPass)
 pm.register(CanonicalFormPass)
 pm.register(TaskSupportPass)
-#pm.register(ArraySplitPass)
+if args.ignore_stop:
+    pm.register(RemoveStopPass)
 pm.runAll(ast)
 
 codegen = ASTCodeGenerator()

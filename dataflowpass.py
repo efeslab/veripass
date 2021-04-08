@@ -148,6 +148,12 @@ class DFBuildAstVisitor():
             assert(len(node.nextnodes) == 1)
             a = self.visit(node.nextnodes[0])
             return vast.Unot(a)
+        if node.operator == "LessThan":
+            assert(len(node.nextnodes) == 2)
+            a = self.visit(node.nextnodes[0])
+            b = self.visit(node.nextnodes[1])
+            return vast.LessThan(a, b)
+
         print(node, "not implemented")
         assert(0 and "operator not implemented")
 
@@ -812,7 +818,8 @@ class GraphNode:
 #            items += self.visit(child)
 
 class dataflowtest:
-    def __init__(self, ast, terms, binddict, data_in, data_in_valid, data_out, reset, gephi=False):
+    def __init__(self, ast, terms, binddict, data_in, data_in_valid, 
+            data_out, reset, identifierRef, typeInfo, gephi=False):
         self.ast = ast
         self.terms = terms
         self.binddict = binddict
@@ -838,6 +845,9 @@ class dataflowtest:
         self.instrumented_def_cache = {}
         self.blackbox_modules = {}
         self.filtered_set = set()
+
+        self.identifierRef = identifierRef
+        self.typeInfo = typeInfo
 
     def addBlackboxModule(self, modulename, model):
         self.blackbox_modules[modulename] = model
@@ -946,9 +956,6 @@ class dataflowtest:
             #print("--------------------------")
             #print(termname, termmeta.msb, termmeta.lsb, termmeta.dims)
             #input('')
-
-            if termname == util.toTermname("ccip_std_afu_wrapper.ccip_std_afu__DOT__ccip_mux_U0__DOT__mgr2mux_RxPort"):
-                print("fuck")
 
             termnode = getNodeByTargetEntry(target)
 
@@ -1560,8 +1567,21 @@ class dataflowtest:
 
         assert(target in dff_map)
         rlist = []
+        builder = DFBuildAstVisitor(self.terms, self.binddict)
         for dst, conds, assigntype, alwaysinfo in forward_map[target]:
-            rlist.append((dst, self.get_merged_conds(conds)))
+            if dst.ptr != None:
+                varname = str(dst.termname[1])
+                varref = self.identifierRef[varname]
+                vartype = self.typeInfo[varref]
+                assert(len(vartype.dimensions) == 1)
+                rlist.append((dst, vast.And(
+                    self.get_merged_conds(conds),
+                    vast.LessThan(builder.visit(dst.ptr), vast.IntConst(
+                        str(vartype.width.bit_length())+"'h"+hex(vartype.dimensions[0])[2:]))
+                    )))
+                print("++++", dst.termname)
+            else:
+                rlist.append((dst, self.get_merged_conds(conds)))
         rlist_changed = True
 
         # the dst may not be a register, so we get the corresponding register
@@ -1581,7 +1601,19 @@ class dataflowtest:
                     continue
                 for ndst, ndst_conds, assigntype, alwaysinfo in forward_map[dst]:
                     print("adding", ndst.toStr())
-                    rlist.append((ndst, vast.And(conds, self.get_merged_conds(ndst_conds))))
+                    if ndst.ptr != None:
+                        varname = str(ndst.termname[1])
+                        varref = self.identifierRef[varname]
+                        vartype = self.typeInfo[varref]
+                        assert(len(vartype.dimensions) == 1)
+                        rlist.append((ndst, vast.And(conds, vast.And(
+                            self.get_merged_conds(ndst_conds),
+                            vast.LessThan(builder.visit(dst.ptr), vast.IntConst(
+                                str(vartype.width.bit_length())+"'h"+hex(vartype.dimensions[0])[2:]))
+                            ))))
+                        print("++++", ndst.termname)
+                    else:
+                        rlist.append((ndst, vast.And(conds, self.get_merged_conds(ndst_conds))))
                 rlist_changed = True
 
         base = None
