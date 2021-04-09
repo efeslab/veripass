@@ -1,6 +1,6 @@
 import pyverilog.vparser.ast as vast
-from passes.common import PassBase
 from passes.common import getDimensions
+from utils.common import ASTNodeVisitor
 from utils.ValueParsing import verilog_string_to_int
 
 import copy
@@ -9,13 +9,10 @@ import copy
 Optimize a list of single bit operations. Used in FlowGuard to save logic.
 """
 
-class SingleBitOptimizationPass(PassBase):
-    def __init__(self, pass_state):
-        super().__init__(pass_state, False)
-        try:
-            self.const_tbl = self.state.const_tbl
-        except:
-            self.const_tbl = None
+class SingleBitOptimizationVisitor(ASTNodeVisitor):
+    def __init__(self, const_tbl=None):
+        super().__init__(False)
+        self.const_tbl = const_tbl
 
     def visit_IntConst(self, node):
         if node.value == "1":
@@ -102,7 +99,7 @@ class SingleBitOptimizationPass(PassBase):
             # (A | B) | A
             if node.right == node.left.left:
                 return node.left
-            # (B | A) | B
+            # (B | A) | A
             if node.right == node.left.right:
                 return node.left
         return node
@@ -116,4 +113,7 @@ class SingleBitOptimizationPass(PassBase):
                 return node.true_value
             if node.cond.value == "1'b0":
                 return node.false_value
+        return node
+
+    def visit_Node(self, node):
         return node

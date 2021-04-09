@@ -14,6 +14,9 @@ import pyverilog.dataflow.dataflow as df
 import pyverilog.utils.util as util
 import pyverilog.vparser.ast as vast
 
+from utils.SingleBitOptimizationVisitor import SingleBitOptimizationVisitor
+from utils.DoNothingVisitor import DoNothingVisitor
+
 from passes.common import getConstantWidth
 
 
@@ -818,7 +821,8 @@ class GraphNode:
 
 class FlowGuardInstrumentationPass:
     def __init__(self, ast, terms, binddict, data_in, data_in_valid, 
-            data_out, reset, identifierRef, typeInfo, gephi=False):
+            data_out, reset, identifierRef, typeInfo, gephi=False,
+            optimizeGen=True):
         self.ast = ast
         self.terms = terms
         self.binddict = binddict
@@ -847,6 +851,11 @@ class FlowGuardInstrumentationPass:
 
         self.identifierRef = identifierRef
         self.typeInfo = typeInfo
+
+        if optimizeGen:
+            self.optimizer = SingleBitOptimizationVisitor()
+        else:
+            self.optimizer = DoNothingVisitor()
 
     def addBlackboxModule(self, modulename, model):
         self.blackbox_modules[modulename] = model
@@ -1410,7 +1419,7 @@ class FlowGuardInstrumentationPass:
                 base = vast.Or(base, src_av)
 
         self.av_cache[target] = base
-        return base
+        return self.optimizer.visit(base)
 
     def get_av_q(self, target):
         return self.get_av_name(target)
@@ -1429,7 +1438,7 @@ class FlowGuardInstrumentationPass:
                 vast.Unot(self.get_av_name(tgt)));
 
         self.ai_cache[tgt] = r
-        return r
+        return self.optimizer.visit(r)
 
     def get_ai_q(self, target):
         return self.get_ai_name(target)
@@ -1528,7 +1537,7 @@ class FlowGuardInstrumentationPass:
 
         if r == None:
             r = vast.IntConst("1'b1")
-        return r
+        return self.optimizer.visit(r)
 
     def get_assign_q(self, target):
         return self.get_assign_name(target)
@@ -1554,7 +1563,7 @@ class FlowGuardInstrumentationPass:
             r = vast.IntConst("1'b0")
 
         self.valid_cache[tgt] = r
-        return r
+        return self.optimizer.visit(r)
 
     def get_valid_q(self, target):
         return self.get_valid_name(target)
@@ -1624,7 +1633,7 @@ class FlowGuardInstrumentationPass:
                     base = vast.Or(base, conds)
 
         self.prop_cache[target] = base
-        return base
+        return self.optimizer.visit(base)
 
     def get_prop_q(self, target):
         return self.get_prop_name(target)
@@ -1643,16 +1652,21 @@ class FlowGuardInstrumentationPass:
                     vast.Or(self.get_good_q_name(tgt), self.get_prop_q_name(tgt))))
 
         self.good_cache[tgt] = r
-        return r
+        return self.optimizer.visit(r)
 
-    def get_check(self, target, idx_override=None):
+    def get_check(self, target, prop_chain, forward_map, dff_map, idx_override=None):
         tgt = copy.deepcopy(target)
         if idx_override != None:
             tgt.ptr = idx_override
 
+        # We can skip checking if the source always propagates
+        prop_val = self.get_prop(tgt, prop_chain, forward_map, dff_map)
+        if isinstance(prop_val, vast.IntConst) and prop_val.value == "1'b1":
+            return None
+
         r = vast.IfStatement(vast.And(
-                vast.Unot(vast.Or(self.get_good_q_name(tgt), self.get_prop_q_name(tgt))),
-            self.get_assign_q_name(tgt)),
+                    vast.Unot(vast.Or(self.get_good_q_name(tgt), self.get_prop_q_name(tgt))),
+                    self.get_assign_q_name(tgt)),
                 vast.SingleStatement(vast.SystemCall("display", [
                     vast.StringConst("[%0t] %%loss: " + target.toStr()),
                     vast.SystemCall("time", [])
@@ -1889,12 +1903,13 @@ class FlowGuardInstrumentationPass:
                         lnonblocking[senslist].append(vast.NonblockingSubstitution(
                             vast.Lvalue(self.get_prop_q_name(tmpn)),
                             vast.Rvalue(self.get_prop_q(tmpn))))
+                        prop_val = vast.And(
+                                    vast.Eq(vast.IntConst(width_prefix+hex(i)[2:]), index_builder.visit(access_ptr)),
+                                    self.get_prop(n, prop_chain, forward_map, dff_map))
+                        self.prop_cache[tmpn] = prop_val
                         lblocking.append(vast.Assign(
                             vast.Lvalue(self.get_prop_name(tmpn)),
-                            vast.Rvalue(
-                                vast.And(
-                                    vast.Eq(vast.IntConst(width_prefix+hex(i)[2:]), index_builder.visit(access_ptr)),
-                                    self.get_prop(n, prop_chain, forward_map, dff_map)))))
+                            vast.Rvalue(prop_val)))
 
                         lnonblocking[senslist].append(vast.NonblockingSubstitution(
                             vast.Lvalue(self.get_good_q_name(tmpn)),
@@ -1904,7 +1919,9 @@ class FlowGuardInstrumentationPass:
                             vast.Rvalue(self.get_good(tmpn))))
 
                         if not self.check_filtered(tmpn.termname):
-                            lnonblocking[senslist].append(self.get_check(tmpn))
+                            check_logic = self.get_check(tmpn, prop_chain, forward_map, dff_map)
+                            if check_logic:
+                                lnonblocking[senslist].append(check_logic)
                 else:
                     t = n
                     i = 0
@@ -1921,10 +1938,11 @@ class FlowGuardInstrumentationPass:
                             vast.Rvalue(self.get_prop_q(tmpn))))
 
                         # FIXME: here's a bunch of hack...
+                        prop_val = self.get_prop(n, prop_chain, forward_map, dff_map)
+                        self.prop_cache[tmpn] = prop_val
                         lblocking.append(vast.Assign(
                             vast.Lvalue(self.get_prop_name(tmpn)),
-                            vast.Rvalue(
-                                    self.get_prop(n, prop_chain, forward_map, dff_map))))
+                            vast.Rvalue(prop_val)))
 
                         lnonblocking[senslist].append(vast.NonblockingSubstitution(
                             vast.Lvalue(self.get_good_q_name(tmpn)),
@@ -1934,7 +1952,9 @@ class FlowGuardInstrumentationPass:
                             vast.Rvalue(self.get_good(tmpn))))
 
                         if not self.check_filtered(tmpn.termname):
-                            lnonblocking[senslist].append(self.get_check(tmpn))
+                            check_logic = self.get_check(tmpn, prop_chain, forward_map, dff_map)
+                            if check_logic:
+                                lnonblocking[senslist].append(check_logic)
 
                         t = t.rd_subling
                         i += 1
@@ -1956,7 +1976,9 @@ class FlowGuardInstrumentationPass:
                     vast.Rvalue(self.get_good(n))))
 
                 if not self.check_filtered(n.termname):
-                    lnonblocking[senslist].append(self.get_check(n))
+                    check_logic = self.get_check(n, prop_chain, forward_map, dff_map)
+                    if check_logic:
+                        lnonblocking[senslist].append(check_logic)
 
         for n in m_in:
             for bbm in self.blackbox_modules:
