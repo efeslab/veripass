@@ -12,15 +12,6 @@ from utils.IntelSignalTapII import IntelSignalTapIIConfig, IntelSignalTapII
 
 from functools import reduce
 
-"""
-Configurations:
-1. CYCLE_COUNTER_WIDTH: the width of the cycle counter register
-2. CYCLE_COUNTER_NAME: the name of the cycle counter register
-"""
-CYCLE_COUNTER_WIDTH = 64
-CYCLE_COUNTER_NAME = "TASKPASS_cycle_counter"
-
-
 class IfConditionStack(object):
     """
     IfConditionStack manages the path constraint of multiple-level if-statements.
@@ -74,8 +65,19 @@ class TaskSupportPass(PassBase):
     2. `reset` (vast.Identifier), the reset signal
     """
 
+    """
+    Configurations:
+    1. CYCLE_COUNTER_WIDTH: the width of the cycle counter register
+    2. CYCLE_COUNTER_NAME: the name of the cycle counter register
+    """
+    CYCLE_COUNTER_WIDTH = 64
+    CYCLE_COUNTER_NAME = "TASKPASS_cycle_counter"
+    INSTRUMENT_SWEEP = False
+    INSTRUMENT_SWEEP_CFG_WIDTH = None  # should be int, Up to 2^12, 4096 bits
+    INSTRUMENT_SWEEP_CFG_DEPTH = None  # should be int, Up to 2^17, 128K samples
+
     def __init__(self, pm, pass_state, cycle_cnt_name=CYCLE_COUNTER_NAME,
-            cnt_width=CYCLE_COUNTER_WIDTH):
+                 cnt_width=CYCLE_COUNTER_WIDTH):
         # Allow fallback to visit_children
         super().__init__(pm, pass_state, True)
         self.bitwise2logical = BitwiseToLogicalVisitor(pass_state)
@@ -112,7 +114,11 @@ class TaskSupportPass(PassBase):
         clock = vast.Identifier(clock_name)
         new_cnt_def, new_cnt_always = self.create_cycle_counter_statements(
             clock)
-        cond_wire_defs, stp_instance = self.getSTPInstrumentation(clock)
+        if self.INSTRUMENT_SWEEP:
+            cond_wire_defs, stp_instance = self.getFakeSTPInstrumentation(
+                clock)
+        else:
+            cond_wire_defs, stp_instance = self.getSTPInstrumentation(clock)
         node.items.insert(0, new_cnt_def)
         node.items.append(new_cnt_always)
         node.items.extend(cond_wire_defs)
@@ -217,6 +223,31 @@ class TaskSupportPass(PassBase):
         stp_config.param_config["SLD_DATA_BITS"] = total_trace_width
         stpinstance = IntelSignalTapII(stp_config)
         return (cond_wire_defs, stpinstance.getInstance())
+
+    def getFakeSTPInstrumentation(self, clk):
+        """
+        Instrument STP to understand the resource overhaed over a given sweep of data width and sample depth.
+        The instrtumentation will only record garbage data constructed from the cycle counter
+        """
+        # full cnt data without partselect
+        cnt_data = [self.cnt for i in range(
+            self.INSTRUMENT_SWEEP_CFG_WIDTH // self.cnt_width)]
+        remain_width = self.INSTRUMENT_SWEEP_CFG_WIDTH % self.cnt_width
+        if remain_width > 0:
+            w = getWidthFromInt(remain_width)
+            cnt_data.append(vast.Partselect(self.cnt, w.msb, w.lsb))
+        fake_data_in = vast.Concat(cnt_data)
+        stp_port_config = {
+            "acq_data_in": fake_data_in,
+            "acq_trigger_in": vast.Ulnot(self.state.reset),
+            "storage_enable": vast.IntConst("1"),
+            "acq_clk": clk
+        }
+        stp_config = IntelSignalTapIIConfig(stp_port_config)
+        stp_config.param_config["SLD_DATA_BITS"] = self.INSTRUMENT_SWEEP_CFG_WIDTH
+        stp_config.param_config["SLD_SAMPLE_DEPTH"] = self.INSTRUMENT_SWEEP_CFG_DEPTH
+        stpinstance = IntelSignalTapII(stp_config)
+        return ([], stpinstance.getInstance())
 
     def create_cycle_counter_statements(self, clk):
         """
