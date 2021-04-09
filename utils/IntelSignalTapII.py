@@ -4,8 +4,8 @@ import pyverilog.vparser.ast as vast
 class IntelSignalTapIIConfig(object):
     def __init__(self, port_config):
         # default config
-        self.param_config = {"SLD_DATA_BITS": 128,
-                             "SLD_SAMPLE_DEPTH": 8192,
+        self.param_config = {"SLD_DATA_BITS": 128,      # Up to 4096 bits
+                             "SLD_SAMPLE_DEPTH": 8192,  # Up to 128K
                              "SLD_RAM_BLOCK_TYPE": "AUTO",
                              "SLD_STORAGE_QUALIFIER_MODE": "PORT",
                              "SLD_STORAGE_QUALIFIER_GAP_RECORD": 1,
