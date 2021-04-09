@@ -4,7 +4,7 @@ import pathlib
 import argparse
 import time
 from verilator import *
-from recordpass import *
+from passes.FlowGuardInstrumentationPass import FlowGuardInstrumentationPass
 from passes.IdentifierRefPass import IdentifierRefPass
 from passes.TypeInfoPass import TypeInfoPass
 from passes.WidthPass import WidthPass
@@ -21,8 +21,6 @@ from pyverilog.dataflow.modulevisitor import ModuleVisitor
 from pyverilog.dataflow.signalvisitor import SignalVisitor
 from pyverilog.dataflow.bindvisitor import BindVisitor
 import pyverilog.utils.util as util
-
-from dataflowpass import dataflowtest
 
 from model.altsyncram_simple_model import AltsyncramSimpleModel
 from model.dcfifo_simple_model import DcfifoSimpleModel
@@ -90,13 +88,14 @@ source_valid = args.top_module + "." + args.source_valid
 sink = args.top_module + "." + args.sink
 reset = args.top_module + "." + args.reset
 
-dft = dataflowtest(ast, terms, binddict, source, source_valid, sink, reset, identifierRef, typeInfo, gephi=True)
-dft.addBlackboxModule("altsyncram", altsyncram)
-dft.addBlackboxModule("dcfifo", dcfifo)
-dft.addBlackboxModule("scfifo", scfifo)
+flowguardpass = FlowGuardInstrumentationPass(ast, terms, binddict,
+        source, source_valid, sink, reset, identifierRef, typeInfo, gephi=True)
+flowguardpass.addBlackboxModule("altsyncram", altsyncram)
+flowguardpass.addBlackboxModule("dcfifo", dcfifo)
+flowguardpass.addBlackboxModule("scfifo", scfifo)
 if args.filtered_list != None:
-    dft.set_filtered(args.filtered_list)
-dft.find2()
+    flowguardpass.set_filtered(args.filtered_list)
+flowguardpass.instrument()
 
 # post instrumentation passes, for compilation purpose
 pm = PassManager()
@@ -105,6 +104,7 @@ pm.register(TypeInfoPass)
 pm.register(WidthPass)
 pm.register(CanonicalFormPass)
 pm.register(TaskSupportPass)
+pm.state.reset = vast.Identifier(args.reset)
 if args.ignore_stop:
     pm.register(RemoveStopPass)
 pm.runAll(ast)

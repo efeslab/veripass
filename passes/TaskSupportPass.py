@@ -94,12 +94,12 @@ class TaskSupportPass(PassBase):
         # dict {sympy expressions => vast.Node (display expression)}
         self.display_cond2display = {}
         # instrumentation related
-        self.reset = vast.Identifier(reset_name)
+        if self.state.reset is None:
+            self.state.reset = vast.Identifier(reset_name)
         self.cnt = vast.Identifier(cycle_cnt_name)
         self.cnt_name = cycle_cnt_name
         self.cnt_width = cnt_width
         # update pass_state
-        self.state.reset = self.reset
         self.state.cycle_cnt = self.cnt
 
     def visit_ModuleDef(self, node):
@@ -230,7 +230,7 @@ class TaskSupportPass(PassBase):
         self.notify_new_Variable(new_logic)
         sens_list = vast.SensList([vast.Sens(clk)])
         always_statement = vast.Block([
-            vast.IfStatement(self.reset,
+            vast.IfStatement(self.state.reset,
                              # cnt <= 64'h0
                              vast.NonblockingSubstitution(
                                  self.cnt, vast.IntConst("{}'h0".format(self.cnt_width))),

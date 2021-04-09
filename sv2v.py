@@ -4,7 +4,6 @@ import pathlib
 import argparse
 import time
 from verilator import *
-from recordpass import *
 from passes.IdentifierRefPass import IdentifierRefPass
 from passes.TypeInfoPass import TypeInfoPass
 from passes.WidthPass import WidthPass

@@ -1,5 +1,5 @@
 from verilator import *
-from dataflowpass import *
+from passes.FlowGuardInstrumentationPass import *
 
 import pyverilog.vparser.ast as vast
 

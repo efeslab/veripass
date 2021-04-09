@@ -4,7 +4,6 @@ import pathlib
 import argparse
 import copy
 from verilator import *
-from recordpass import *
 
 from pyverilog.vparser.parser import VerilogCodeParser
 from pyverilog.dataflow.modulevisitor import ModuleVisitor
@@ -817,7 +816,7 @@ class GraphNode:
 #        for child in node.children():
 #            items += self.visit(child)
 
-class dataflowtest:
+class FlowGuardInstrumentationPass:
     def __init__(self, ast, terms, binddict, data_in, data_in_valid, 
             data_out, reset, identifierRef, typeInfo, gephi=False):
         self.ast = ast
@@ -1577,7 +1576,7 @@ class dataflowtest:
                 rlist.append((dst, vast.And(
                     self.get_merged_conds(conds),
                     vast.LessThan(builder.visit(dst.ptr), vast.IntConst(
-                        str(vartype.width.bit_length())+"'h"+hex(vartype.dimensions[0])[2:]))
+                        str(vartype.dimensions[0].bit_length())+"'h"+hex(vartype.dimensions[0])[2:]))
                     )))
                 print("++++", dst.termname)
             else:
@@ -1609,7 +1608,7 @@ class dataflowtest:
                         rlist.append((ndst, vast.And(conds, vast.And(
                             self.get_merged_conds(ndst_conds),
                             vast.LessThan(builder.visit(dst.ptr), vast.IntConst(
-                                str(vartype.width.bit_length())+"'h"+hex(vartype.dimensions[0])[2:]))
+                                str(vartype.dimensions[0].bit_length())+"'h"+hex(vartype.dimensions[0])[2:]))
                             ))))
                         print("++++", ndst.termname)
                     else:
@@ -1665,7 +1664,7 @@ class dataflowtest:
     def get_good_q(self, target):
         return self.get_good_name(target)
 
-    def find2(self):
+    def instrument(self):
         prop_chain, reverse_map, forward_map, unassigned_map = self.find_prop_chain()
         print()
 
