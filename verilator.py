@@ -938,7 +938,7 @@ class VerilatorXMLToAST:
                     p = vast.Logic(var_name, width=width, dimensions=dim, annotation=anno)
                     items.append(p)
                 elif var_type_name == "int":
-                    p = vast.Int(var_name, width=width, dimensions=dim)
+                    p = vast.Logic(var_name, width=width, dimensions=dim)
                     items.append(p)
                 elif var_type_name == "integer":
                     p = vast.Integer(var_name, width=width, dimensions=dim)
@@ -1016,7 +1016,7 @@ class VerilatorXMLToAST:
                     p = vast.Logic(var_name, width=width, dimensions=dim, annotation=anno)
                     items.append(p)
                 elif var_type_name == "int":
-                    p = vast.Int(var_name, width=width, dimensions=dim)
+                    p = vast.Logic(var_name, width=width, dimensions=dim)
                     items.append(p)
                 elif var_type_name == "integer":
                     p = vast.Integer(var_name, width=width, dimensions=dim)

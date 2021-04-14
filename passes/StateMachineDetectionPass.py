@@ -48,6 +48,8 @@ class _StateMachineCandidateFilterPass(PassBase):
     def __init__(self, pm, pass_state):
         super().__init__(pm, pass_state, True)
         assert(hasattr(self.state, "fsm_candidate"))
+        self.invalid_fsm_op_stack = []
+        self.valid_fsm_ops = {"Eq", "NotEq"}
 
     def visit_UnaryOperator(self, node):
         self.visit(node.right)
@@ -61,18 +63,25 @@ class _StateMachineCandidateFilterPass(PassBase):
 
     def visit_Operator(self, node):
         if node.left in self.state.fsm_candidate:
-            if not isinstance(node, vast.Eq):
+            if not node.__class__.__name__ in self.valid_fsm_ops:
                 self.state.fsm_candidate.remove(node.left)
         if node.right in self.state.fsm_candidate:
-            if not isinstance(node, vast.Eq):
+            if not node.__class__.__name__ in self.valid_fsm_ops:
                 self.state.fsm_candidate.remove(node.right)
+        pushed = False
+        if not node.__class__.__name__ in self.valid_fsm_ops:
+            pushed = True
+            self.invalid_fsm_op_stack.append(node.__class__.__name__)
         self.visit(node.left)
         self.visit(node.right)
+        if pushed:
+            self.invalid_fsm_op_stack.pop()
 
     def visit_Concat(self, node):
-        for n in node.list:
-            if n in self.state.fsm_candidate:
-                self.state.fsm_candidate.remove(n)
+        if len(self.invalid_fsm_op_stack) > 0:
+            for n in node.list:
+                if n in self.state.fsm_candidate:
+                    self.state.fsm_candidate.remove(n)
 
 
 """
@@ -85,9 +94,13 @@ class DFSelfControlDepVisitor:
         self.binddict = binddict
         self.incondnode = False
         self.target = target
+        self.valid_fsm_ops = {"Eq", "NotEq"}
 
     def is_reg(self, termname):
-        assert(termname in self.binddict)
+        if not termname in self.binddict:
+            # If termname does not exist in binddict, the variable is never
+            # assigned, so we return None here.
+            return None
         if self.binddict[termname][0].parameterinfo == "nonblocking":
             return True
         return False
@@ -106,17 +119,20 @@ class DFSelfControlDepVisitor:
 
     def visit_DFTerminal(self, node):
         termname = node.name
-        if self.is_reg(termname) or self.incondnode:
+        r = self.is_reg(termname)
+        if r == True or self.incondnode:
             return False
-        else:
+        elif r == False:
             for n in self.binddict[termname]:
                 if self.visit(n.tree):
                     return True
             return False
+        else:
+            return False
 
     def visit_DFOperator(self, node):
         if self.incondnode:
-            if node.operator == "Eq":
+            if node.operator in self.valid_fsm_ops:
                 if isinstance(node.nextnodes[0], df.DFIntConst) and isinstance(node.nextnodes[1], df.DFTerminal):
                     if node.nextnodes[1].name == self.target:
                         return True
@@ -177,8 +193,9 @@ class StateMachineDetectionPass(PassBase):
             signal_visitor.start_visit()
             frametable = signal_visitor.getFrameTable()
 
+            # BindVisitor's reorder is buggy for SSSP, so we turn off reorder here.
             bind_visitor = BindVisitor(moduleinfotable, self.state.top_module, frametable,
-                    noreorder=False, ignoreSyscall=True)
+                    noreorder=True, ignoreSyscall=True)
             for m in self.state.model_list:
                 bind_visitor.addBlackboxModule(m[0], m[1])
             bind_visitor.start_visit()
