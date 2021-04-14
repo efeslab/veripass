@@ -27,7 +27,7 @@ args = parser.parse_args()
 print("Top Module: {}".format(args.top_module))
 print("Desc File: {}".format(args.desc_file))
 
-v = Verilator(top_module_name=args.top_module, desc_file=args.desc_file)
+v = Verilator(top_module_name=args.top_module, desc_file=args.desc_file, skip_opt_veq=True)
 ast = v.get_ast()
 
 

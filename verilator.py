@@ -1101,18 +1101,18 @@ verilator_arg_template = """\
 {} -cc -timescale-override 10ps/10ps -Wno-WIDTH -Wno-LITENDIAN -Wno-UNPACKED -Wno-BLKANDNBLK -Wno-TIMESCALEMOD \
 -Wno-CASEINCOMPLETE -Wno-CASEX -Wno-PINMISSING -trace-fst -trace-structs -assert -trace-max-array 65536 \
 -trace-max-width 65536 -unroll-count 65536 --Mdir {} --flatten --xml-only --xml-opt -F {} \
--Wno-SPLITVAR -Wno-VLTAG -comp-limit-syms 0 --force-split-var \
+-Wno-SPLITVAR -Wno-VLTAG -comp-limit-syms 0 --force-split-var {} \
 --top-module {}"""
 
 verilator_arg_template_single_file = """\
 {} -cc -timescale-override 10ps/10ps -Wno-WIDTH -Wno-LITENDIAN -Wno-UNPACKED -Wno-BLKANDNBLK \
 -Wno-CASEINCOMPLETE -Wno-CASEX -Wno-PINMISSING -trace-fst -trace-structs -assert -trace-max-array 65536 \
 -trace-max-width 65536 -unroll-count 65536 --Mdir {} --flatten --xml-only --xml-opt {} \
--Wno-SPLITVAR -Wno-VLTAG -comp-limit-syms 0 --force-split-var\
+-Wno-SPLITVAR -Wno-VLTAG -comp-limit-syms 0 --force-split-var {} \
 --top-module {}"""
 
 class Verilator:
-    def __init__(self, top_module_name, desc_file=None, files=None):
+    def __init__(self, top_module_name, desc_file=None, files=None, skip_opt_veq=False):
         self.top_module_name = top_module_name
         self.desc_file = desc_file
         self.files = files
@@ -1123,18 +1123,21 @@ class Verilator:
         self.ast = None
         self.split_v = None
         self.is_splitted = False
+        self.skip_opt_veq = ""
+        if skip_opt_veq:
+            self.skip_opt_veq = "--skip-opt-verilog-eq"
 
     def compile(self):
         if self.desc_file != None:
             verilator_arg = verilator_arg_template.format(self.verilator_path,
-                    self.tempdir, self.desc_file, self.top_module_name)
+                    self.tempdir, self.desc_file, self.skip_opt_veq, self.top_module_name)
         else:
             fls = ""
             for f in self.files:
                 fls += f
                 fls += " "
             verilator_arg = verilator_arg_template_single_file.format(self.verilator_path,
-                    self.tempdir, fls, self.top_module_name)
+                    self.tempdir, fls, self.skip_opt_veq, self.top_module_name)
         print("Verilator: {}".format(self.verilator_path))
         print("Temp Dir: {}".format(self.tempdir))
         os.system(verilator_arg)
