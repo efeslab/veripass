@@ -3,7 +3,7 @@ import pyverilog.vparser.ast as vast
 
 class IntelSignalTapIIConfig(object):
     def __init__(self, port_config):
-        # default config
+        # default param_config
         self.param_config = {"SLD_DATA_BITS": 128,      # Up to 4096 bits
                              "SLD_SAMPLE_DEPTH": 8192,  # Up to 128K
                              "SLD_RAM_BLOCK_TYPE": "AUTO",
@@ -43,7 +43,7 @@ class IntelSignalTapIIConfig(object):
             elif isinstance(v, int):
                 param_v = vast.IntConst(v)
             else:
-                raise NotImplementedError("Unknown stp config type")
+                raise NotImplementedError("Unknown stp param_config type")
             param_list.append(vast.ParamArg(k, param_v))
         return param_list
 
