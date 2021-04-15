@@ -120,6 +120,9 @@ class TaskSupportPass(PassBase):
             # filter all variable items, since there will be no tasks
             if not isinstance(c, vast.Variable):
                 self.visit(c)
+        if len(self.inferred_clock) == 0:
+            # early return if no clock-synced display tasks are found
+            return
         # choose the most frequently used clock signal
         clock_name, freq = max(self.inferred_clock.items(), key=lambda x: x[1])
         clock = vast.Identifier(clock_name)
