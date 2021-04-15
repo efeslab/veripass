@@ -26,6 +26,7 @@ parser.add_argument("-o", dest="output", help="output path")
 parser.add_argument("--split", default=False, action="store_true", dest="split", help="whether to split variable")
 parser.add_argument("--tasksupport", default=False, action="store_true", help="whether to run TaskSupportPass")
 parser.add_argument("--tasksupport-mode", default='STP', choices=['STP', 'SWEEP', 'ILA'], help="in what mode to run TaskSupportPass (default is STP)")
+parser.add_argument("--tasksupport-ignoretag", action="store_true", help="Ignore debug_display tag and instrument all display tasks")
 parser.add_argument("--tasksupport-log2width", default=0, type=int, help="The log2(width) of the fake data to instrument recording for")
 parser.add_argument("--tasksupport-log2depth", default=0, type=int, help="The log2(depth) of the fake data to instrument recording for")
 
@@ -56,6 +57,8 @@ if args.tasksupport:
         TaskSupportPass.INSTRUMENT_TYPE = TaskSupportPass.INSTRUMENT_TYPE_XILINXILA
     else:
         raise NotImplementedError("Unknown TaskSupport Mode")
+    if args.tasksupport_ignoretag:
+        TaskSupportPass.INSTRUMENT_TAGONLY = False
     pm.register(TaskSupportPass)
 #pm.register(ArraySplitPass)
 pm.runAll(ast)
