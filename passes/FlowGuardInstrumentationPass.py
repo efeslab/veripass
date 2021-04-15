@@ -9,6 +9,7 @@ from pyverilog.vparser.parser import VerilogCodeParser
 from pyverilog.dataflow.modulevisitor import ModuleVisitor
 from pyverilog.dataflow.signalvisitor import SignalVisitor
 from pyverilog.dataflow.bindvisitor import BindVisitor
+from pyverilog.dataflow.dataflow import Term
 from pyverilog.utils.scope import ScopeLabel, ScopeChain
 import pyverilog.dataflow.dataflow as df
 import pyverilog.utils.util as util
@@ -18,6 +19,7 @@ from utils.SingleBitOptimizationVisitor import SingleBitOptimizationVisitor
 from utils.DoNothingVisitor import DoNothingVisitor
 
 from passes.common import getConstantWidth
+from passes.common import getWidthFromInt
 
 
 try:
@@ -852,6 +854,8 @@ class FlowGuardInstrumentationPass:
         self.identifierRef = identifierRef
         self.typeInfo = typeInfo
 
+        self.array_pointer_delay_cnt = 0
+
         if optimizeGen:
             self.optimizer = SingleBitOptimizationVisitor()
         else:
@@ -1616,7 +1620,7 @@ class FlowGuardInstrumentationPass:
                         assert(len(vartype.dimensions) == 1)
                         rlist.append((ndst, vast.And(conds, vast.And(
                             self.get_merged_conds(ndst_conds),
-                            vast.LessThan(builder.visit(dst.ptr), vast.IntConst(
+                            vast.LessThan(builder.visit(ndst.ptr), vast.IntConst(
                                 str(vartype.dimensions[0].bit_length())+"'h"+hex(vartype.dimensions[0])[2:]))
                             ))))
                         print("++++", ndst.termname)
@@ -1654,24 +1658,43 @@ class FlowGuardInstrumentationPass:
         self.good_cache[tgt] = r
         return self.optimizer.visit(r)
 
+    def get_pointer_delay_def_use(self, width):
+        d = vast.Logic("array_pointer_delay_"+str(self.array_pointer_delay_cnt), getWidthFromInt(width))
+        u = vast.Identifier("array_pointer_delay_"+str(self.array_pointer_delay_cnt))
+        self.array_pointer_delay_cnt += 1
+        return (d, u)
+
     def get_check(self, target, prop_chain, forward_map, dff_map, idx_override=None):
         tgt = copy.deepcopy(target)
         if idx_override != None:
             tgt.ptr = idx_override
 
-        # We can skip checking if the source always propagates
-        prop_val = self.get_prop(tgt, prop_chain, forward_map, dff_map)
-        if isinstance(prop_val, vast.IntConst) and prop_val.value == "1'b1":
-            return None
+        if tgt.ptr == None:
+            # We can skip checking if the source always propagates
+            prop_val = self.get_prop(tgt, prop_chain, forward_map, dff_map)
+            if isinstance(prop_val, vast.IntConst) and prop_val.value == "1'b1":
+                return None
 
-        r = vast.IfStatement(vast.And(
-                    vast.Unot(vast.Or(self.get_good_q_name(tgt), self.get_prop_q_name(tgt))),
-                    self.get_assign_q_name(tgt)),
-                vast.SingleStatement(vast.SystemCall("display", [
-                    vast.StringConst("[%0t] %%loss: " + target.toStr()),
-                    vast.SystemCall("time", [])
-                ])),
-                None)
+        if tgt.ptr == None or isinstance(tgt.ptr, df.DFEvalValue) or isinstance(tgt.ptr, df.DFIntConst):
+            r = vast.IfStatement(vast.And(
+                        vast.Unot(vast.Or(self.get_good_q_name(tgt), self.get_prop_q_name(tgt))),
+                        self.get_assign_q_name(tgt)),
+                    vast.SingleStatement(vast.SystemCall("display", [
+                        vast.StringConst("[%0t] %%loss: " + target.toStr()),
+                        vast.SystemCall("time", [])
+                    ])),
+                    None)
+        else:
+            builder = DFBuildAstVisitor(self.terms, self.binddict)
+            r = vast.IfStatement(vast.And(
+                        vast.Unot(vast.Or(self.get_good_q_name(tgt), self.get_prop_q_name(tgt))),
+                        self.get_assign_q_name(tgt)),
+                    vast.SingleStatement(vast.SystemCall("display", [
+                        vast.StringConst("[%0t] %%loss: " + target.toStr() + " ptr=h%h"),
+                        vast.SystemCall("time", []),
+                        builder.visit(tgt.ptr)
+                    ])),
+                    None)
 
         return r
 
@@ -1918,10 +1941,10 @@ class FlowGuardInstrumentationPass:
                             vast.Lvalue(self.get_good_name(tmpn)),
                             vast.Rvalue(self.get_good(tmpn))))
 
-                        if not self.check_filtered(tmpn.termname):
-                            check_logic = self.get_check(tmpn, prop_chain, forward_map, dff_map)
-                            if check_logic:
-                                lnonblocking[senslist].append(check_logic)
+                        #if not self.check_filtered(tmpn.termname):
+                        #    check_logic = self.get_check(tmpn, prop_chain, forward_map, dff_map)
+                        #    if check_logic:
+                        #        lnonblocking[senslist].append(check_logic)
                 else:
                     t = n
                     i = 0
@@ -1951,14 +1974,39 @@ class FlowGuardInstrumentationPass:
                             vast.Lvalue(self.get_good_name(tmpn)),
                             vast.Rvalue(self.get_good(tmpn))))
 
-                        if not self.check_filtered(tmpn.termname):
-                            check_logic = self.get_check(tmpn, prop_chain, forward_map, dff_map)
-                            if check_logic:
-                                lnonblocking[senslist].append(check_logic)
+                        #if not self.check_filtered(tmpn.termname):
+                        #    check_logic = self.get_check(tmpn, prop_chain, forward_map, dff_map)
+                        #    if check_logic:
+                        #        lnonblocking[senslist].append(check_logic)
 
                         t = t.rd_subling
                         i += 1
                     assert(i == dim)
+
+                if not self.check_filtered(n.termname):
+                    curr = n
+                    width_visitor = DFDataWidthVisitor(self.terms, self.binddict)
+                    ptr_width = width_visitor.visit(n.ptr)
+
+                    while curr != None:
+                        builder = DFBuildAstVisitor(self.terms, self.binddict)
+
+                        d, u = self.get_pointer_delay_def_use(ptr_width)
+                        ldefs.append(d)
+                        lnonblocking[senslist].append(vast.NonblockingSubstitution(
+                            vast.Lvalue(u),
+                            vast.Rvalue(builder.visit(curr.ptr))))
+
+                        tmpn = copy.deepcopy(curr)
+                        tmpn.ptr = df.DFTerminal(util.toTermname(str(tmpn.termname[0]) + "." + u.name))
+                        self.terms[tmpn.ptr.name] = Term(tmpn.ptr.name, {"Gen"},
+                                                        df.DFEvalValue(ptr_width-1), df.DFEvalValue(0))
+
+                        check_logic = self.get_check(tmpn, prop_chain, forward_map, dff_map)
+                        if check_logic:
+                            lnonblocking[senslist].append(check_logic)
+
+                        curr = curr.wr_subling
 
             else:
                 lnonblocking[senslist].append(vast.NonblockingSubstitution(
