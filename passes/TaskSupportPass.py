@@ -9,8 +9,10 @@ from utils.BitwiseToLogicalVisitor import BitwiseToLogicalVisitor
 from utils.SymPyUtils import CondASTToSymPyVisitor
 from utils.SymPyUtils import CondSymPyToASTVisitor
 from utils.IntelSignalTapII import IntelSignalTapIIConfig, IntelSignalTapII
+from utils.XilinxILA import XilinxILA
 
 from functools import reduce
+
 
 class IfConditionStack(object):
     """
@@ -66,13 +68,22 @@ class TaskSupportPass(PassBase):
     """
 
     """
+    Available configuration options
+    """
+    # Options for INSTRUMENT_TYPE
+    INSTRUMENT_TYPE_SWEEP = 0
+    INSTRUMENT_TYPE_INTELSTP = 1
+    INSTRUMENT_TYPE_XILINXILA = 2
+
+    """
     Configurations:
     1. CYCLE_COUNTER_WIDTH: the width of the cycle counter register
     2. CYCLE_COUNTER_NAME: the name of the cycle counter register
     """
     CYCLE_COUNTER_WIDTH = 64
     CYCLE_COUNTER_NAME = "TASKPASS_cycle_counter"
-    INSTRUMENT_SWEEP = False
+    INSTRUMENT_TYPE = INSTRUMENT_TYPE_INTELSTP
+    # configurations used in INSTRUMENT_TYPE_SWEEP mode
     INSTRUMENT_SWEEP_CFG_WIDTH = None  # should be int, Up to 2^12, 4096 bits
     INSTRUMENT_SWEEP_CFG_DEPTH = None  # should be int, Up to 2^17, 128K samples
 
@@ -114,15 +125,22 @@ class TaskSupportPass(PassBase):
         clock = vast.Identifier(clock_name)
         new_cnt_def, new_cnt_always = self.create_cycle_counter_statements(
             clock)
-        if self.INSTRUMENT_SWEEP:
-            cond_wire_defs, stp_instance = self.getFakeSTPInstrumentation(
+        cond_wire_defs, cond_wires, display_args, arg_widths = self.getInstrumentationPlan()
+        if self.INSTRUMENT_TYPE == self.INSTRUMENT_TYPE_SWEEP:
+            instance = self.getFakeSTPInstrumentation(
                 clock)
+        elif self.INSTRUMENT_TYPE == self.INSTRUMENT_TYPE_INTELSTP:
+            instance = self.getSTPInstrumentation(
+                clock, cond_wires, display_args, arg_widths)
+        elif self.INSTRUMENT_TYPE == self.INSTRUMENT_TYPE_XILINXILA:
+            instance = self.getILAInstrumentation(
+                clock, cond_wires, display_args, arg_widths)
         else:
-            cond_wire_defs, stp_instance = self.getSTPInstrumentation(clock)
+            raise NotImplementedError("Unknown instrumentation type")
         node.items.insert(0, new_cnt_def)
         node.items.append(new_cnt_always)
         node.items.extend(cond_wire_defs)
-        node.items.append(stp_instance)
+        node.items.append(instance)
 
     def visit_Always(self, node):
         # self.always is to track the senslist of always to which each display tasks belong
@@ -189,30 +207,45 @@ class TaskSupportPass(PassBase):
             all_cond_wire_identifiers.append(identifier)
         return (new_module_items, all_cond_wire_identifiers)
 
-    def getSTPInstrumentation(self, clk):
+    def getInstrumentationPlan(self):
+        """
+        Return (cond_wire_defs, cond_wire_identifiers, display_args, arg_widths)
+        cond_wire_defs: list of vast.Wire
+        cond_wire_identifiers: list of vast.Identifier
+        display_args: list of vast.Node
+        arg_widths: list of int
+        """
         # encode display path constriants/conditions
         cond2id = {}
         all_conds = []
         for cid, cond in enumerate(self.display_cond2arg.keys()):
             all_conds.append(self.sympy2ast.visit(cond))
             cond2id[cond] = cid
-        # encode display args
-        # arg2range is {sympy.Symbol => (start_index, end_index)}
-        arg2range = {}
-        all_args = []
-        args_width_accu = 0
+        display_args = []
+        arg_widths = []
         width_visitor = WidthVisitor(self.state)
         for arg in self.display_arg2cond.keys():
             ast_arg = self.sympy2ast.visit(arg)
-            all_args.append(ast_arg)
             arg_width = width_visitor.getWidth(ast_arg)
+            display_args.append(ast_arg)
+            arg_widths.append(arg_width)
+        cond_wire_defs, cond_wire_identifiers = self.get_cond_wires(all_conds)
+        return (cond_wire_defs, cond_wire_identifiers, display_args, arg_widths)
+
+    def getSTPInstrumentation(self, clk, cond_wires, display_args, arg_widths):
+        assert(len(display_args) == len(arg_widths))
+        trace_enable_signal = reduce(vast.Lor, cond_wires)
+        # encode display args
+        # arg2range is {sympy.Symbol => (start_index, end_index)}
+        # arg2range is used to decode each display args from the recorded waveform.
+        # But the decoding part is not implemented yet.
+        arg2range = {}
+        args_width_accu = 0
+        for arg, arg_width in zip(display_args, arg_widths):
             arg2range[arg] = (args_width_accu, args_width_accu + arg_width - 1)
             args_width_accu += arg_width
-        total_trace_width = len(all_conds) + args_width_accu
-        # cond_wire_identifiers has new defined wires, thus WidthVisitor cannot operate on them.
-        cond_wire_defs, cond_wire_identifiers = self.get_cond_wires(all_conds)
-        trace_enable_signal = reduce(vast.Lor, cond_wire_identifiers)
-        trace_data = vast.Concat(cond_wire_identifiers + all_args)
+        total_trace_width = len(cond_wires) + args_width_accu
+        trace_data = vast.Concat(cond_wires + display_args)
         stp_port_config = {
             "acq_data_in": trace_data,
             "acq_trigger_in": vast.Ulnot(self.state.reset),
@@ -222,7 +255,13 @@ class TaskSupportPass(PassBase):
         stp_config = IntelSignalTapIIConfig(stp_port_config)
         stp_config.param_config["SLD_DATA_BITS"] = total_trace_width
         stpinstance = IntelSignalTapII(stp_config)
-        return (cond_wire_defs, stpinstance.getInstance())
+        return stpinstance.getInstance()
+
+    def getILAInstrumentation(self, clk, cond_wires, display_args, arg_widths):
+        data_trigger_list = [(cond, 1) for cond in cond_wires]
+        data_list = list(zip(display_args, arg_widths))
+        ila_inst = XilinxILA(clk, data_trigger_list, data_list, [])
+        return ila_inst.getInstance()
 
     def getFakeSTPInstrumentation(self, clk):
         """
@@ -247,7 +286,7 @@ class TaskSupportPass(PassBase):
         stp_config.param_config["SLD_DATA_BITS"] = self.INSTRUMENT_SWEEP_CFG_WIDTH
         stp_config.param_config["SLD_SAMPLE_DEPTH"] = self.INSTRUMENT_SWEEP_CFG_DEPTH
         stpinstance = IntelSignalTapII(stp_config)
-        return ([], stpinstance.getInstance())
+        return stpinstance.getInstance()
 
     def create_cycle_counter_statements(self, clk):
         """
