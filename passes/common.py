@@ -7,6 +7,20 @@ RESET_NAME = "ccip_std_afu__DOT__reset"
 class PassState(object):
     def __init__(self):
         self.reset = vast.Identifier(RESET_NAME)
+    def set_reset(self, reset: str):
+        """
+        reset can be a single identifier, e.g. "RESET"
+        Or have a logic NOT prefix, e.g. "!RESETN"
+
+        Note that in general reset can be "active-high" or "active-low".
+        All passes in this framework assume an "active-high" reset.
+        Be sure to add a logic NOT prefix for "active-low" reset signals.
+        """
+        if reset[0] == '~' or reset[0] == '!':
+            identifier = reset[1:]
+            self.reset = vast.Ulnot(vast.Identifier(identifier))
+        else:
+            self.reset = vast.Identifier(reset)
 
 
 class PassBase(ASTNodeVisitor):
