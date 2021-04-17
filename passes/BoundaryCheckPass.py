@@ -46,7 +46,7 @@ class ArrayBoundaryCheckPass(PassBase):
                         vast.SingleStatement(
                             vast.SystemCall("display", [
                                 vast.StringConst(str(node.var) + " overflow")
-                            ])),
+                            ], anno="debug_display")),
                         None))
             else:
                 self.assign_instrument.append(vast.IfStatement(
@@ -54,7 +54,7 @@ class ArrayBoundaryCheckPass(PassBase):
                         vast.SingleStatement(
                             vast.SystemCall("display", [
                                 vast.StringConst(str(node.var) + " overflow")
-                            ])),
+                            ], anno="debug_display")),
                         None))
         return node
 

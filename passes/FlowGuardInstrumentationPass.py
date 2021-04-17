@@ -1682,7 +1682,7 @@ class FlowGuardInstrumentationPass:
                     vast.SingleStatement(vast.SystemCall("display", [
                         vast.StringConst("[%0t] %%loss: " + target.toStr()),
                         vast.SystemCall("time", [])
-                    ])),
+                    ], anno="debug_display")),
                     None)
         else:
             builder = DFBuildAstVisitor(self.terms, self.binddict)
@@ -1693,7 +1693,7 @@ class FlowGuardInstrumentationPass:
                         vast.StringConst("[%0t] %%loss: " + target.toStr() + " ptr=h%h"),
                         vast.SystemCall("time", []),
                         builder.visit(tgt.ptr)
-                    ])),
+                    ], anno="debug_display")),
                     None)
 
         return r

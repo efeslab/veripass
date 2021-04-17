@@ -12,7 +12,6 @@ from passes.CanonicalFormPass import CanonicalFormPass
 from passes.TaskSupportPass import TaskSupportPass
 from passes.ArraySplitPass import ArraySplitPass
 from passes.Logic2RegPass import Logic2RegPass
-from passes.RefClockPass import RefClockPass
 from passes.BoundaryCheckPass import ArrayBoundaryCheckPass
 from passes.common import PassManager
 

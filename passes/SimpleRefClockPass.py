@@ -18,10 +18,11 @@ class RefClock:
 
 """
 This pass identifies the clock with which a signal is referenced.
-It is not tested at all. Use on your own risk.
+Only handle simple case where all signals referenced in an assignment
+use the same clock.
 """
 
-class RefClockPass(PassBase):
+class SimpleRefClockPass(PassBase):
     def __init__(self, pm, pass_state):
         super().__init__(pm, pass_state, True)
         self.left = None
@@ -53,9 +54,16 @@ class RefClockPass(PassBase):
         self.visit(node.right)
         self.left = None
 
+    def visit_NonblockingSubstitution(self, node):
+        self.is_left = True
+        self.visit(node.left)
+        self.is_left = False
+        self.visit(node.right)
+        self.left = None
+
     def visit_Identifier(self, node):
-        if self.senslist:
-            if not node.name in self.state.refClockMap:
+        if self.is_left and self.senslist:
+            if not node.name in self.state.refClockMap or self.state.refClockMap[node.name].reftype == "signal":
                 self.state.refClockMap[node.name] = RefClock("senslist", clock=self.senslist)
         elif self.is_left:
             self.left = node
