@@ -36,7 +36,9 @@ class SimpleRefClockPass(PassBase):
             if "reset" in s.sig.name or "rst" in s.sig.name:
                 continue
             sens.append(s)
-        self.senslist = vast.SensList(sens)
+
+        if sens[0].type != "all":
+            self.senslist = vast.SensList(sens)
         self.visit(node.statement)
         self.senslist = None
 
@@ -62,10 +64,10 @@ class SimpleRefClockPass(PassBase):
         self.left = None
 
     def visit_Identifier(self, node):
-        if self.is_left and self.senslist:
+        if self.senslist:
             if not node.name in self.state.refClockMap or self.state.refClockMap[node.name].reftype == "signal":
                 self.state.refClockMap[node.name] = RefClock("senslist", clock=self.senslist)
-        elif self.is_left:
+        if self.is_left:
             self.left = node
         elif self.left:
             if not node.name in self.state.refClockMap:
