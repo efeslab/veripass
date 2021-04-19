@@ -3,6 +3,7 @@ from passes.common import PassBase
 from passes.common import getWidthFromInt, getConstantWidth
 from passes.WidthPass import WidthVisitor
 from utils.Format import format_name
+import copy
 
 """
 A pass to print out variable value changes.
@@ -31,18 +32,18 @@ class TransRecTarget:
             return vast.Identifier(self.name)
         elif not self.isArray() and self.isSelect():
             return vast.Partselect(vast.Identifier(self.name),
-                    self.IntConst(self.msb),
-                    self.IntConst(self.lsb))
+                    vast.IntConst(str(self.msb)),
+                    vast.IntConst(str(self.lsb)))
         elif self.isArray() and not self.isSelect():
             return vast.Pointer(vast.Identifier(self.name),
-                    self.IntConst(self.ptr))
+                    vast.IntConst(str(self.ptr)))
         elif self.isArray() and self.isSelect():
             return vast.Partselect(
                     vast.Pointer(
                         vast.Identifier(self.name),
-                        vast.IntConst(self.ptr)),
-                    vast.IntConst(self.msb),
-                    vast.IntConst(self.lsb))
+                        vast.IntConst(str(self.ptr))),
+                    vast.IntConst(str(self.msb)),
+                    vast.IntConst(str(self.lsb)))
 
     def getStr(self):
         s = self.name
@@ -56,6 +57,31 @@ class TransRecTarget:
         s = self.getStr()
         s = format_name(s)
         return s
+
+def target_merge(targets):
+    targets = copy.deepcopy(targets)
+    changed = True
+    while changed:
+        changed = False
+        new_targets = []
+        for target in targets:
+            need_insert = True
+            for i in range(0, len(new_targets)):
+                if new_targets[i].name != target.name:
+                    continue
+                if target.msb >= new_targets[i].lsb - 1 and target.lsb <= new_targets[i].msb + 1:
+                    new_msb = target.msb if target.msb > new_targets[i].msb else new_targets[i].msb
+                    new_lsb = target.lsb if target.lsb < new_targets[i].lsb else new_targets[i].lsb
+                    new_targets[i].msb = new_msb
+                    new_targets[i].lsb = new_lsb
+                    need_insert = False
+                    break
+            if need_insert:
+                new_targets.append(target)
+        if targets != new_targets:
+            changed = True
+        targets = new_targets
+    return new_targets
 
 class PrintTransitionPass(PassBase):
     def __init__(self, pm, pass_state):
