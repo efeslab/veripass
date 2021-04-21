@@ -297,7 +297,7 @@ class DFDataWidthVisitor:
             right_width = self.visit(node.nextnodes[1])
             assert(left_width == right_width)
             return left_width
-        elif node.operator in {"Uand", "Uor", "Eq", "NotEq"}:
+        elif node.operator in {"Uand", "Uor", "Eq", "NotEq", "Ulnot", "LessEq", "GreaterEq", "LessThan", "GreaterThan", "Eql", "NotEql"}:
             return 1
         elif node.operator in {"Unot"}:
             return self.visit(node.nextnodes[0])

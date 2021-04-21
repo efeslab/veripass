@@ -12,22 +12,33 @@ from passes.FlowGuardInstrumentationPass import DFDataWidthVisitor
 from passes.FlowGuardInstrumentationPass import DFBuildAstVisitor
 
 class DataDepEntry:
-    def __init__(self, termname, msb=None, lsb=None):
-        self.termname = termname
+    def __init__(self, DFTerm, msb=None, lsb=None):
+        self.DFTerm = DFTerm
         self.msb = msb
         self.lsb = lsb
         if self.msb:
             assert(self.lsb != None)
 
+    def getName(self):
+        if isinstance(self.DFTerm, df.DFPointer):
+            return str(self.DFTerm.var.name.scopechain[1])
+        elif isinstance(self.DFTerm, df.DFTerminal):
+            return str(self.DFTerm.name.scopechain[1])
+        else:
+            raise NotImplementedError("Invalid DFTerm")
     def getStr(self):
-        s = str(self.termname.scopechain[1])
+        s = self.getName()
         if self.msb != None:
             s += ("[" + str(self.msb) + ":" + str(self.lsb) + "]")
         return s
 
     def getTransRecTarget(self):
-        t = TransRecTarget(str(self.termname.scopechain[1]), None,
-                self.msb.eval(), self.lsb.eval())
+        if isinstance(self.DFTerm, df.DFPointer):
+            ptr = self.DFTerm.ptr
+        else:
+            ptr = None
+        t = TransRecTarget(self.getName(), ptr,
+                self.msb, self.lsb)
         return t
 
 """
@@ -100,7 +111,7 @@ class DFDependencyVisitor:
                     self.visit(bd.tree, do_msb, do_lsb)
 
                 if bd.ptr != None and not isinstance(bd.ptr, df.DFIntConst) and not isinstance(bd.ptr, df.DFEvalValue):
-                    old_in_control = self.old_in_control
+                    old_in_control = self.in_control
                     self.in_control = True
                     wv = DFDataWidthVisitor(self.terms, self.binddict)
                     width = wv.visit(bd.ptr)
@@ -114,9 +125,9 @@ class DFDependencyVisitor:
                 return
 
         if self.in_control:
-            self.control_deps.append(DataDepEntry(termname, msb, lsb))
+            self.control_deps.append(DataDepEntry(node, msb, lsb))
         else:
-            self.data_deps.append(DataDepEntry(termname, msb, lsb))
+            self.data_deps.append(DataDepEntry(node, msb, lsb))
 
         self.terminal_stack.pop()
 
@@ -132,11 +143,10 @@ class DFDependencyVisitor:
             self.visit(node.ptr, width-1, 0)
             self.in_control = old_in_control
 
-        termname = node.var.name
         if self.in_control:
-            self.control_deps.append(DataDepEntry(termname, msb, lsb))
+            self.control_deps.append(DataDepEntry(node, msb, lsb))
         else:
-            self.data_deps.append(DataDepEntry(termname, msb, lsb))
+            self.data_deps.append(DataDepEntry(node, msb, lsb))
 
     def visit_DFPartselect(self, node, msb, lsb):
         target_width = msb - lsb + 1
@@ -249,10 +259,9 @@ class SignalDependencyPass(PassBase):
         data_deps = []
 
         for target in self.state.targets:
-            assert(target.ptr == None)
             assert(isinstance(target, TransRecTarget)) 
             termname = util.toTermname(self.state.top_module+"."+target.name)
-            for bd in binddict[termname]:
+            for bd in binddict.get(termname, []):
                 dv = DFDependencyVisitor(terms, binddict)
                 if bd.msb == None:
                     wv = DFDataWidthVisitor(terms, binddict)
@@ -296,27 +305,25 @@ class SignalDependencyPass(PassBase):
         for dep in control_deps:
             found = False
             for t in target_control_deps:
-                if t.name == str(dep.termname.scopechain[1]):
+                if t.name == dep.getName():
                     if t.lsb == None:
                         found = True
                     elif t.lsb == dep.lsb and t.msb == dep.msb:
                         found = True
             if not found:
-                target_control_deps.append(
-                        TransRecTarget(str(dep.termname.scopechain[1]), None, dep.msb, dep.lsb))
+                target_control_deps.append(dep.getTransRecTarget())
 
         target_data_deps = []
         for dep in data_deps:
             found = False
             for t in target_data_deps:
-                if t.name == str(dep.termname.scopechain[1]):
+                if t.name == dep.getName():
                     if t.lsb == None:
                         found = True
                     elif t.lsb == dep.lsb and t.msb == dep.msb:
                         found = True
             if not found:
-                target_data_deps.append(
-                        TransRecTarget(str(dep.termname.scopechain[1]), None, dep.msb, dep.lsb))
+                target_data_deps.append(dep.getTransRecTarget())
 
         self.state.control_deps = target_merge(target_control_deps)
         self.state.data_deps = target_merge(target_data_deps)
