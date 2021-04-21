@@ -1351,14 +1351,14 @@ verilator_arg_template = """\
 {} -cc -timescale-override 10ps/10ps -Wno-WIDTH -Wno-LITENDIAN -Wno-UNPACKED -Wno-BLKANDNBLK -Wno-TIMESCALEMOD \
 -Wno-CASEINCOMPLETE -Wno-CASEX -Wno-PINMISSING -trace-fst -trace-structs -assert -trace-max-array 65536 \
 -trace-max-width 65536 -unroll-count 65536 --Mdir {} --flatten --xml-only --xml-opt -F {} \
--Wno-SPLITVAR -Wno-VLTAG -comp-limit-syms 0 --force-split-var {} \
+-Wno-SPLITVAR -Wno-VLTAG -Wno-PROCASSWIRE -comp-limit-syms 0 --force-split-var {} \
 --top-module {}"""
 
 verilator_arg_template_single_file = """\
 {} -cc -timescale-override 10ps/10ps -Wno-WIDTH -Wno-LITENDIAN -Wno-UNPACKED -Wno-BLKANDNBLK \
 -Wno-CASEINCOMPLETE -Wno-CASEX -Wno-PINMISSING -trace-fst -trace-structs -assert -trace-max-array 65536 \
 -trace-max-width 65536 -unroll-count 65536 --Mdir {} --flatten --xml-only --xml-opt {} \
--Wno-SPLITVAR -Wno-VLTAG -comp-limit-syms 0 --force-split-var {} \
+-Wno-SPLITVAR -Wno-VLTAG -Wno-PROCASSWIRE -comp-limit-syms 0 --force-split-var {} \
 --top-module {}"""
 
 class Verilator:
