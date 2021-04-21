@@ -79,11 +79,13 @@ class TaskSupportPass(PassBase):
     Configurations:
     1. CYCLE_COUNTER_WIDTH: the width of the cycle counter register
     2. CYCLE_COUNTER_NAME: the name of the cycle counter register
+    3. INSTRUMENT_TYPE: STP (for intel), ILA (for Xilinx) or SWEEP (for width/depth space walking on intel)
+    4. INSTRUMENT_TAGS: set of str. Instrument all display if empty, else only instrument display with given tags.
     """
     CYCLE_COUNTER_WIDTH = 64
     CYCLE_COUNTER_NAME = "TASKPASS_cycle_counter"
     INSTRUMENT_TYPE = INSTRUMENT_TYPE_INTELSTP
-    INSTRUMENT_TAGONLY = True
+    INSTRUMENT_TAGS = set()
     # configurations used in INSTRUMENT_TYPE_SWEEP mode
     INSTRUMENT_SWEEP_CFG_WIDTH = None  # should be int, Up to 2^12, 4096 bits
     INSTRUMENT_SWEEP_CFG_DEPTH = None  # should be int, Up to 2^17, 128K samples
@@ -168,7 +170,7 @@ class TaskSupportPass(PassBase):
     def visit_SystemCall(self, node):
         # display could also appear in the initial block, which we will skip
         if self.always and node.syscall == "display" and \
-                (not self.INSTRUMENT_TAGONLY or (node.anno and node.anno == "debug_display")):
+                (len(self.INSTRUMENT_TAGS) == 0 or (node.anno and node.anno in self.INSTRUMENT_TAGS)):
             # track sens list for clock inference
             for sens in self.always.sens_list.list:
                 # display are assumed to only be sensitive to simple identifiers
