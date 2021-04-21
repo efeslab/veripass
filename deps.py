@@ -4,6 +4,7 @@ import sys
 import pathlib
 import argparse
 import time
+import re
 from verilator import *
 from passes.IdentifierRefPass import IdentifierRefPass
 from passes.TypeInfoPass import TypeInfoPass
@@ -31,8 +32,8 @@ parser.add_argument("--control", dest="control", default=False, action="store_tr
             help="detect control dependencies")
 parser.add_argument("--data", dest="data", default=False, action="store_true",
             help="detect data dependencies")
-parser.add_argument("--variable", dest="var", default=None, help="the variable of interest")
-parser.add_argument("--index", dest="idx", default=None, help="the index range of interest")
+parser.add_argument("--tag", type=str, help="The verilator tag of instrumented display tasks")
+parser.add_argument("--variable", dest="vars", type=str, action="append", default=[], help="the variable of interest. format signal:msb:lsb")
 parser.add_argument("--layer", dest="layer", type=int, default=1, help="the number of layers")
 
 args = parser.parse_args()
@@ -40,12 +41,13 @@ print("Top Module: {}".format(args.top_module))
 print("Desc File: {}".format(args.desc_file))
 print("Output Path: {}".format(args.output))
 
-assert(args.var != None)
-assert(args.idx != None)
+assert(len(args.vars) > 0)
+#assert(args.var != None)
+#assert(args.idx != None)
 
-idx = args.idx.split(",")
-msb = int(idx[0])
-lsb = int(idx[1])
+#idx = args.idx.split(",")
+#msb = int(idx[0])
+#lsb = int(idx[1])
 
 v = Verilator(top_module_name=args.top_module, desc_file=args.desc_file, skip_opt_veq=True)
 ast = v.get_ast()
@@ -77,7 +79,11 @@ pm.register(WidthPass)
 pm.runAll(ast)
 
 tgts = []
-tgts.append(TransRecTarget(args.var, msb=msb, lsb=lsb))
+for signal in args.vars:
+    m = re.findall(r"([0-9a-zA-Z_]+)\:([0-9]+)\:([0-9]+)", signal)
+    assert(len(m) == 1 and len(m[0]) == 3)
+    name, msb, lsb = m[0]
+    tgts.append(TransRecTarget(name, msb=int(msb), lsb=int(lsb)))
 
 for i in range(0, args.layer):
     old_state = pm.state
@@ -110,6 +116,8 @@ pm.register(WidthPass)
 pm.state = old_state
 pm.state.transitionPrintTargets = tgts
 pm.register(SimpleRefClockPass)
+if args.tag:
+    PrintTransitionPass.DISPLAY_TAG = args.tag
 pm.register(PrintTransitionPass)
 pm.runAll(ast)
 
