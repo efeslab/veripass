@@ -84,6 +84,11 @@ def target_merge(targets):
     return new_targets
 
 class PrintTransitionPass(PassBase):
+    """
+    Configurations:
+    1. DISPLAY_TAG: the verilator tag attachted to insturmented display tasks
+    """
+    DISPLAY_TAG = "debug_display"
     def __init__(self, pm, pass_state):
         super().__init__(pm, pass_state, False)
         self.widthVisitor = WidthVisitor(pass_state)
@@ -122,9 +127,10 @@ class PrintTransitionPass(PassBase):
                     vast.NotEq(
                         vast.Identifier(target.name), vast.Identifier(target.name+"__Q__")),
                     vast.SingleStatement(vast.SystemCall("display", [
-                        vast.StringConst(target.getStr()+" updated to %h"),
+                        vast.StringConst("[%0t] {} updated to %h".format(target.getStr())),
+                        vast.SystemCall("time", []),
                         target.getAst()],
-                        anno="debug_display"
+                        anno=self.DISPLAY_TAG
                     )),
                     None
                 )

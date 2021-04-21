@@ -23,6 +23,8 @@ import pyverilog.utils.util as util
 parser = argparse.ArgumentParser(description="Translate SystemVerilog to Readable Verilog")
 parser.add_argument("--top", dest="top_module", help="top module name")
 parser.add_argument("-F", dest="desc_file", help="description file path, similar to verilator")
+parser.add_argument("-S", "--state", dest="explicit_states", default=[], type=str, action="append", help="If not emptty, only instrument the FSM state veriables which are both given here and automatically detected")
+parser.add_argument("--tag", type=str, help="The verilator tag of instrumented display tasks")
 parser.add_argument("-o", dest="output", help="output path")
 
 args = parser.parse_args()
@@ -45,7 +47,6 @@ scfifo = ScfifoSimpleModel()
 model_list = [("altsyncram", altsyncram), ("dcfifo", dcfifo), ("scfifo", scfifo)]
 
 pm = PassManager()
-pm.register(Logic2RegPass)
 pm.register(IdentifierRefPass)
 pm.register(TypeInfoPass)
 pm.register(WidthPass)
@@ -61,14 +62,21 @@ pm.runAll(ast)
 old_state = pm.state
 
 tgts = set()
+explicit_states = set(args.explicit_states)
 for i in pm.state.fsm:
-    tgts.add(TransRecTarget(i.name))
-    print(i.name)
+    if len(explicit_states) == 0 or i.name in explicit_states:
+        # either
+        # (1) no explicit states are specified OR
+        # (2) the found fsm var is one of the specified explicit states
+        tgts.add(TransRecTarget(i.name))
+        print(i.name)
 
 pm = PassManager()
 pm.state = old_state
 pm.state.transitionPrintTargets = tgts
 pm.register(SimpleRefClockPass)
+if args.tag:
+    PrintTransitionPass.DISPLAY_TAG = args.tag
 pm.register(PrintTransitionPass)
 pm.runAll(ast)
 
