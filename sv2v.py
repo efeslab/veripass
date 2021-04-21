@@ -20,13 +20,15 @@ import pyverilog.utils.util as util
 
 parser = argparse.ArgumentParser(description="Translate SystemVerilog to Readable Verilog")
 parser.add_argument("--top", dest="top_module", help="top module name")
-parser.add_argument("-F", dest="desc_file", help="description file path, similar to verilator")
+input_parser = parser.add_mutually_exclusive_group()
+input_parser.add_argument("-F", dest="desc_file", help="description file path, similar to verilator")
+input_parser.add_argument("-f", dest="files", type=str, action="append", help="input file path")
 parser.add_argument("-o", dest="output", help="output path")
 parser.add_argument("--split", default=False, action="store_true", dest="split", help="whether to split variable")
 parser.add_argument("--reset", default=None, type=str, help="Specify the reset identifier (e.g. RESET or !RESETN)")
 parser.add_argument("--tasksupport", default=False, action="store_true", help="whether to run TaskSupportPass")
 parser.add_argument("--tasksupport-mode", default='STP', choices=['STP', 'SWEEP', 'ILA'], help="in what mode to run TaskSupportPass (default is STP)")
-parser.add_argument("--tasksupport-ignoretag", action="store_true", help="Ignore debug_display tag and instrument all display tasks")
+parser.add_argument("--tasksupport-tags", type=str, default=[], action="append", help="The tag (e.g. debug_display) enabling instrumentations of specific display tasks")
 parser.add_argument("--tasksupport-log2width", default=0, type=int, help="The log2(width) of the fake data to instrument recording for")
 parser.add_argument("--tasksupport-log2depth", default=0, type=int, help="The log2(depth) of the fake data to instrument recording for")
 
@@ -36,7 +38,7 @@ print("Desc File: {}".format(args.desc_file))
 print("Output Path: {}".format(args.output))
 print("Split Variables: {}".format(args.split))
 
-v = Verilator(top_module_name=args.top_module, desc_file=args.desc_file)
+v = Verilator(top_module_name=args.top_module, desc_file=args.desc_file, files=args.files)
 ast = v.get_ast()
 
 pm = PassManager()
@@ -59,8 +61,7 @@ if args.tasksupport:
         TaskSupportPass.INSTRUMENT_TYPE = TaskSupportPass.INSTRUMENT_TYPE_XILINXILA
     else:
         raise NotImplementedError("Unknown TaskSupport Mode")
-    if args.tasksupport_ignoretag:
-        TaskSupportPass.INSTRUMENT_TAGONLY = False
+    TaskSupportPass.INSTRUMENT_TAGS = set(args.tasksupport_tags)
     pm.register(TaskSupportPass)
 #pm.register(ArraySplitPass)
 pm.runAll(ast)
