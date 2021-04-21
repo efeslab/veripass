@@ -100,7 +100,10 @@ class PrintTransitionPass(PassBase):
 
     def getRefClock(self, target):
         name = target.name
-        ref = self.state.refClockMap[name]
+        if name not in self.state.refClockMap:
+            return None
+        else:
+            ref = self.state.refClockMap[name]
         while ref.reftype == "signal":
             name = ref.sig.name
             ref = self.state.refClockMap[name]
@@ -114,6 +117,9 @@ class PrintTransitionPass(PassBase):
             target_ast = target.getAst()
             target_width = getWidthFromInt(self.widthVisitor.getWidth(target_ast))
             sens = self.getRefClock(target)
+            if sens is None:
+                print("Warning, skipping transition target {} due to no ref clock".format(target.getStr()))
+                continue
             if not sens in lalways:
                 lalways[sens] = vast.Always(sens, vast.Block([]))
 
