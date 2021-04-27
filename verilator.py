@@ -67,6 +67,9 @@ class VerilatorXMLToAST:
 
         self.blackbox_inst = {} # name -> (defname, [params], [ports])
         self.astwidth_visitor = AstWidthVisitor(self.typetable, self.used_vars)
+
+        self.jumpblock_stack = []
+        self.while_variable_table = {}
     
     def name_format(self, name):
         s = name
@@ -227,6 +230,9 @@ class VerilatorXMLToAST:
         r = vast.Identifier(self.name_format(elem.get("hier")))
         self.used_vars[var_name].ref.append(r)
 
+        if var_name in self.while_variable_table:
+            return vast.IntConst("32'h"+hex(self.while_variable_table[var_name])[2:])
+
         # DFF detection
         if self.parser_stack[0] != "initial":
             # If the left-side of an assigndly is a varref, then the whole var
@@ -255,6 +261,23 @@ class VerilatorXMLToAST:
         start = self.parse_elem(l[1])
         assert(l[2].tag == "const")
         width = self.parse_elem(l[2])
+
+        if varref.__class__ == vast.IntConst:
+            if start.__class__ == vast.IntConst and width.__class__ == vast.IntConst:
+                var_value = verilog_string_to_int(varref.value)
+                start_value = verilog_string_to_int(start.value)
+                width_value = verilog_string_to_int(width.value)
+
+                tmp = ''
+                for i in range(0, 64):
+                    tmp += '0'
+
+                binary = tmp + bin(var_value)[2:]
+                length = len(binary)
+                
+                selected = binary[length - start_value - width_value : length - start_value + 1]
+
+                return vast.IntConst(str(width_value) + "'h" + hex(int(selected, 2))[2:])
     
         #print(start.__class__)
         #print(start.__class__ == vast.IntConst)
@@ -417,6 +440,15 @@ class VerilatorXMLToAST:
         assert(len(l) == 2)
         a = self.parse_elem(l[0])
         b = self.parse_elem(l[1])
+
+        if a.__class__ == vast.IntConst and b.__class__ == vast.IntConst:
+            a_value = verilog_string_to_int(a.value)
+            b_value = verilog_string_to_int(b.value)
+            a_width = a.value[0:a.value.find("'h")+2]
+            b_width = b.value[0:b.value.find("'h")+2]
+            if a_width == b_width:
+                return vast.IntConst(a_width+hex(a_value+b_value)[2:])
+
         return vast.Plus(a, b)
     
     def parse_elem_sub(self, elem):
@@ -425,6 +457,15 @@ class VerilatorXMLToAST:
         assert(len(l) == 2)
         a = self.parse_elem(l[0])
         b = self.parse_elem(l[1])
+
+        if a.__class__ == vast.IntConst and b.__class__ == vast.IntConst:
+            a_value = verilog_string_to_int(a.value)
+            b_value = verilog_string_to_int(b.value)
+            a_width = a.value[0:a.value.find("'h")+2]
+            b_width = b.value[0:b.value.find("'h")+2]
+            if a_width == b_width:
+                return vast.IntConst(a_width+hex(a_value-b_value)[2:])
+
         return vast.Minus(a, b)
     
     def parse_elem_muls(self, elem):
@@ -763,6 +804,48 @@ class VerilatorXMLToAST:
         else:
             else_branch = None
         return vast.IfStatement(if_cond, if_branch, else_branch)
+
+    # The handling of jumpblock is a huge hack. This following code can only handle the case where:
+    #   1. The jumpblock only contains an while block
+    #   2. The while block only contains an if-statement with only then-branch
+    #   3. The while block starts from 0, adds by 1 at each iteration, and use gts to compare
+    #   4. There's a jump at the end of the if-statement and that's the only jump
+    def parse_elem_jumpblock(self, elem):
+        assert(elem.tag == "jumpblock")
+        l = list(elem)
+        assert(len(l) == 2)
+        assert(l[0].tag == "while")
+        assert(l[1].tag == "jumplabel")
+        self.jumpblock_stack.append(elem)
+        w = list(l[0])
+        assert(len(w) == 3)
+        assert(w[0].tag == "gts")
+        assert(w[1].tag == "if")
+        assert(w[2].tag == "assign")
+
+        gts = list(w[0])
+        assign = list(w[2])
+
+        upper_bound = verilog_string_to_int(gts[0].get("name"))
+        iter_var_name = self.name_format(gts[1].get("hier"))
+        self.while_variable_table[iter_var_name] = 0
+
+        r = None
+        it = None
+        for i in range(0, upper_bound):
+            self.while_variable_table[iter_var_name] = i
+            if r == None:
+                r = self.parse_elem(w[1])
+                it = r
+            else:
+                it.false_statement = self.parse_elem(w[1])
+                it = it.false_statement
+        return r
+
+    def parse_elem_jumpgo(self, elem):
+        assert(elem.tag == "jumpgo")
+        assert(len(self.jumpblock_stack) > 0)
+        return None
     
     def parse_assign(self, assign):
         l = list(assign)
