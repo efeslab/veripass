@@ -113,15 +113,17 @@ class PrintTransitionPass(PassBase):
             if not sens in lalways:
                 lalways[sens] = vast.Always(sens, vast.Block([]))
 
-            ldefs.append(vast.Logic(target.getFormatStr()+"__Q__", target_width))
+            target_name = target.getFormatStr()
+            target_name_delayed = target_name + "__Q__"
+            target_ast = target.getAst()
+            ldefs.append(vast.Logic(target_name_delayed, target_width))
             lalways[sens].statement.statements.append(
                     vast.NonblockingSubstitution(
-                        vast.Identifier(target.getFormatStr()+"__Q__"),
-                        target.getAst()))
+                        vast.Identifier(target_name_delayed),
+                        target_ast))
             lalways[sens].statement.statements.append(
                 vast.IfStatement(
-                    vast.NotEq(
-                        vast.Identifier(target.name), vast.Identifier(target.name+"__Q__")),
+                    vast.NotEq(target_ast, vast.Identifier(target_name_delayed)),
                     vast.SingleStatement(vast.SystemCall("display", [
                         vast.StringConst("[%0t] {} updated to %h".format(target.getStr())),
                         vast.SystemCall("time", []),
