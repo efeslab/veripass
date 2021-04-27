@@ -2,6 +2,7 @@ import pyverilog.vparser.ast as vast
 from passes.common import PassBase
 from passes.common import getWidth, getConstantWidth
 from utils.ValueParsing import verilog_string_to_int
+from collections import Counter
 
 class RefClock:
     def __init__(self, reftype, clock=None, sig=None):
@@ -73,11 +74,18 @@ class SimpleRefClockPass(PassBase):
             if not node.name in self.state.refClockMap:
                 self.state.refClockMap[node.name] = RefClock("signal", sig=self.left)
 
+def getMostPopularClock(refClockMap):
+    all_clocks = [x.clock for x in refClockMap.values()]
+    c = Counter(all_clocks)
+    topClk, _ = c.most_common(1)[0]
+    return topClk
+
 def getClockByName(refClockMap, name):
     if not name in refClockMap:
-        return None
+        return getMostPopularClock(refClockMap)
     r = refClockMap[name]
     while r.reftype == "signal":
-        assert(r.sig.name in refClockMap)
+        if r.sig.name not in refClockMap:
+            return getMostPopularClock(refClockMap)
         r = refClockMap[r.sig.name]
-    return r.senslist
+    return r.clock

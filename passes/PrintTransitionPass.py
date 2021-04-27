@@ -2,6 +2,7 @@ import pyverilog.vparser.ast as vast
 from passes.common import PassBase
 from passes.common import getWidthFromInt, getConstantWidth
 from passes.WidthPass import WidthVisitor
+from passes.SimpleRefClockPass import getClockByName
 from utils.Format import format_name
 import copy
 
@@ -98,17 +99,6 @@ class PrintTransitionPass(PassBase):
         #assert(hasattr(self.state, "enableControl"))
         self.if_stack = []
 
-    def getRefClock(self, target):
-        name = target.name
-        if name not in self.state.refClockMap:
-            return None
-        else:
-            ref = self.state.refClockMap[name]
-        while ref.reftype == "signal":
-            name = ref.sig.name
-            ref = self.state.refClockMap[name]
-        return ref.clock
-
     def visit_ModuleDef(self, node):
         ldefs = []
         lalways = {}
@@ -116,7 +106,7 @@ class PrintTransitionPass(PassBase):
         for target in self.state.transitionPrintTargets:
             target_ast = target.getAst()
             target_width = getWidthFromInt(self.widthVisitor.getWidth(target_ast))
-            sens = self.getRefClock(target)
+            sens = getClockByName(self.state.refClockMap, target.name)
             if sens is None:
                 print("Warning, skipping transition target {} due to no ref clock".format(target.getStr()))
                 continue
