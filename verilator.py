@@ -850,7 +850,7 @@ class VerilatorXMLToAST:
     def parse_elem_testplusargs(self, elem):
         assert(elem.tag == "testplusargs")
         s = elem.get("name")
-        return vast.SystemCall("value$plusargs", [vast.StringConst(s)])
+        return vast.SystemCall("test$plusargs", [vast.StringConst(s)])
 
     def parse_elem_fopen(self, elem):
         assert(elem.tag == "fopen")
