@@ -170,7 +170,7 @@ class TaskSupportPass(PassBase):
     def visit_SystemCall(self, node):
         # display could also appear in the initial block, which we will skip
         if self.always and node.syscall == "display" and \
-                (len(self.INSTRUMENT_TAGS) == 0 or (node.anno and node.anno in self.INSTRUMENT_TAGS)):
+                (len(self.INSTRUMENT_TAGS) == 0 or (node.annotation and node.annotation in self.INSTRUMENT_TAGS)):
             # track sens list for clock inference
             for sens in self.always.sens_list.list:
                 # display are assumed to only be sensitive to simple identifiers
