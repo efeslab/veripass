@@ -15,10 +15,11 @@ from utils.ValueParsing import verilog_string_to_int
 sys.setrecursionlimit(1000000)
 
 class dtype:
-    def __init__(self, width, array_len, type_name):
+    def __init__(self, width, array_len, type_name, signed=None):
         self.width = width
         self.array_len = array_len
         self.type_name = type_name
+        self.signed = signed
 
 class variable:
     def __init__(self, var_name, dtype_id, dtype):
@@ -148,7 +149,8 @@ class VerilatorXMLToAST:
                     width = sub_dtype.width
                     array_len = left - right + 1
                     if t.tag == "unpackarraydtype":
-                        self.typetable[type_id] = dtype(width, array_len, sub_dtype.type_name)
+                        signed = True if t.get("signed")=="true" else False
+                        self.typetable[type_id] = dtype(width, array_len, sub_dtype.type_name, signed)
                     else:
                         self.typetable[type_id] = dtype(width*array_len, 0, sub_dtype.type_name)
                     tptbl_handled += 1
@@ -166,7 +168,8 @@ class VerilatorXMLToAST:
                     #assert(right == 0)
                     width = left - right + 1
                     array_len = 0 # 0 means it is not an array
-                    self.typetable[type_id] = dtype(width, array_len, type_type)
+                    signed = True if t.get("signed")=="true" else False
+                    self.typetable[type_id] = dtype(width, array_len, type_type, signed)
                     tptbl_handled += 1
                     #print(type_id, self.typetable[type_id])
                 elif t.tag == "enumdtype":
@@ -648,13 +651,32 @@ class VerilatorXMLToAST:
         tree_width = self.astwidth_visitor.getWidth(a)
         target_width = verilog_string_to_int(width.value)
         append_int = vast.IntConst("{}'h0".format(target_width - tree_width))
-        item = None
         if a.__class__ == vast.Concat:
             items = [append_int] + a.list
         else:
             items = [append_int, a]
         return vast.Concat(items)
-    
+
+    def parse_elem_extends(self, elem):
+        assert(elem.tag == "extends")
+        l = list(elem)
+        assert(len(l) == 1)
+        a = self.parse_elem(l[0])
+        width = vast.IntConst(elem.get("width"))
+        tree_width = self.astwidth_visitor.getWidth(a)
+        target_width = verilog_string_to_int(width.value)
+        append_int_pos = vast.IntConst("{}'h0".format(target_width - tree_width))
+        append_int_neg = vast.IntConst("{}'h1".format(target_width - tree_width))
+        append_int = vast.Cond(
+                vast.Partselect(a, vast.IntConst(str(target_width-1)), vast.IntConst(str(target_width-1))),
+                append_int_neg,
+                append_int_pos)
+        if a.__class__ == vast.Concat:
+            items = [append_int] + a.list
+        else:
+            items = [append_int, a]
+        return vast.Concat(items)
+
     def parse_elem_replicate(self, elem):
         assert(elem.tag == "replicate")
         l = list(elem)
@@ -698,11 +720,21 @@ class VerilatorXMLToAST:
     def parse_elem_stop(self, elem):
         assert(elem.tag == "stop")
         return vast.SingleStatement(vast.SystemCall("stop", []))
-    
+
+    def parse_elem_readmem(self, elem):
+        assert(elem.tag == "readmem")
+        l = list(elem)
+        assert(l[0].tag == "const")
+        assert(l[0].get("from_string") == "true")
+        assert(l[1].tag == "varref")
+        filename = vast.StringConst(l[0].get("str"))
+        varref = self.parse_elem(l[1])
+        return vast.SingleStatement(vast.SystemCall("readmemh", [filename, varref]))
+
     def parse_elem_scopename(self, elem):
         assert(elem.tag == "scopename")
         return vast.StringConst(elem.get("name"))
-    
+
     def parse_elem_display(self, elem):
         assert(elem.tag == "display")
         l = list(elem)
@@ -995,6 +1027,10 @@ class VerilatorXMLToAST:
                 lth = vast.Width(vast.IntConst(str(var_type_array_len-1)), vast.IntConst(str(0)))
                 dim = vast.Dimensions([lth])
 
+            signed = var_type.signed
+            if signed == None:
+                signed = False
+
             anno = var.get('tag')
             if self.split_var and (width != None or dim != None):
                 if anno:
@@ -1004,11 +1040,11 @@ class VerilatorXMLToAST:
 
             if var_dir == "input":
                 assert(dim == None)
-                p = vast.Ioport(vast.Input(var_name, width=width), vast.Logic(var_name, width=width))
+                p = vast.Ioport(vast.Input(var_name, width=width), vast.Logic(var_name, width=width, signed=signed))
                 ports.append(p)
             elif var_dir == "output":
                 assert(dim == None)
-                p = vast.Ioport(vast.Output(var_name, width=width), vast.Logic(var_name, width=width))
+                p = vast.Ioport(vast.Output(var_name, width=width), vast.Logic(var_name, width=width, signed=signed))
                 ports.append(p)
             elif var_name in self.used_vars:
                 assert(var_dir == None)
@@ -1018,19 +1054,19 @@ class VerilatorXMLToAST:
                     p = vast.Parameter(var_name, self.parse_elem(l[0]))
                     items.append(p)
                 elif var_type_name == "logic":
-                    p = vast.Logic(var_name, width=width, dimensions=dim, annotation=anno)
+                    p = vast.Logic(var_name, width=width, dimensions=dim, annotation=anno, signed=signed)
                     items.append(p)
                 elif var_type_name == "int":
-                    p = vast.Logic(var_name, width=width, dimensions=dim)
+                    p = vast.Logic(var_name, width=width, dimensions=dim, signed=signed)
                     items.append(p)
                 elif var_type_name == "integer":
-                    p = vast.Integer(var_name, width=width, dimensions=dim)
+                    p = vast.Integer(var_name, width=width, dimensions=dim, signed=signed)
                     items.append(p)
                 elif var_type_name == "reg":
-                    p = vast.Reg(var_name, width=width, dimensions=dim, annotation=anno)
+                    p = vast.Reg(var_name, width=width, dimensions=dim, annotation=anno, signed=signed)
                     items.append(p)
                 elif var_type_name == "wire":
-                    p = vast.Wire(var_name, width=width, dimensions=dim, annotation=anno)
+                    p = vast.Wire(var_name, width=width, dimensions=dim, annotation=anno, signed=signed)
                     items.append(p)
                 elif var_type_name == "time":
                     p = vast.Time(var_name)
