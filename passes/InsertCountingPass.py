@@ -73,7 +73,7 @@ class InsertCountingPass(PassBase):
         assert(hasattr(self.state, "counterWidth"))
         assert(hasattr(self.state, "reset"))
 
-        assert(self.state.reset in self.state.identifierRef)
+        assert(self.state.reset.name in self.state.identifierRef)
         for v in self.state.variablesToCount:
             assert(v.name in self.state.identifierRef)
 
@@ -113,7 +113,7 @@ class InsertCountingPass(PassBase):
 
             lalways[sens].statement.statements.append(
                     vast.IfStatement(
-                        vast.Identifier(self.state.reset),
+                        self.state.reset,
                         vast.NonblockingSubstitution(
                             self.get_counter_ref(var),
                             vast.IntConst(str(self.state.counterWidth)+"'h0")),
