@@ -61,12 +61,12 @@ class PassManager(object):
         self.pass_completed = set()
         # a list of pass instances which are listening to events. The order is the same as registration order
         self.pass_listening = []
+        self.pass_ret = {}
 
     def register(self, passClass):
         assert(issubclass(passClass, PassBase))
         self.pass_to_run.append(passClass)
         self.registred_pass.add(passClass)
-        self.pass_ret = {}
 
     def runAll(self, node):
         for p in self.pass_to_run:
