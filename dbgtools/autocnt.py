@@ -17,7 +17,8 @@ def autocnt_regParser(subparsers):
     p.set_defaults(toolEntry=autocnt_entry)
     p.add_argument("--valid-signal", dest="signals", action="append", type=str,
         help="specify the valid signals to count. format name[:ptr]:index (can be stacked)")
-    p.add_argument("--counter-width", type=int, dest="counter_width", default=32, help="the width of counters")
+    p.add_argument("--counter-width", type=int, dest="counter_width", default=32, help="the width of counters (default is 32)")
+    p.add_argument("--tag", type=str, help="The verilator tag of instrumented display tasks")
 
 def autocnt_entry(args, ast):
     print("Counter Width: {}".format(args.counter_width))
@@ -41,9 +42,10 @@ def autocnt_entry(args, ast):
     pm.runAll(ast)
 
     pm = PassManager()
+    if args.reset:
+        pm.state.set_reset(args.reset)
     pm.state.variablesToCount = validbits
     pm.state.counterWidth = args.counter_width
-    pm.state.reset = args.reset
     pm.register(IdentifierRefPass)
     pm.register(TypeInfoPass)
     pm.register(WidthPass)
@@ -65,5 +67,7 @@ def autocnt_entry(args, ast):
     pm.state = old_state
     pm.state.transitionPrintTargets = trans
     pm.register(SimpleRefClockPass)
+    if args.tag:
+        PrintTransitionPass.DISPLAY_TAG = args.tag
     pm.register(PrintTransitionPass)
     pm.runAll(ast)
