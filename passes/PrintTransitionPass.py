@@ -152,7 +152,7 @@ class PrintTransitionPass(PassBase):
             if not sens in lalways:
                 lalways[sens] = vast.Always(sens, vast.Block([]))
 
-            def_annotation = "TransRecTarget={}".format(target.getFormatStr())
+            def_annotation = "TransRecTarget={}".format(target_name)
             ldefs.append(vast.Logic(target_name_delayed, target_width, annotation=def_annotation))
             lalways[sens].statement.statements.append(
                     vast.NonblockingSubstitution(
