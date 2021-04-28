@@ -191,7 +191,8 @@ class WidthVisitor(ASTNodeVisitor):
         skip_nodes = set([
             vast.SingleStatement,
             vast.InstanceList,
-            vast.CommentStmt
+            vast.CommentStmt,
+            vast.SystemCall
         ])
         if node.__class__ in all_children_nodes:
             self.visit_children(node)
