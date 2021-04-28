@@ -11,7 +11,12 @@ A pass to print out variable value changes.
 """
 
 class TransRecTarget:
-    def __init__(self, name, ptr=None, msb=None, lsb=None, enableData=True, enableControl=True):
+    """
+    A TransRecTarget tracks a verilog variable whose value changes should be logged via display tasks.
+    The variable must have a known width (msb and lsb) but can have an optional pointer index.
+    """
+    def __init__(self, name, ptr, msb, lsb, enableData=True, enableControl=True):
+        assert(msb is not None and lsb is not None)
         self.name = name
         self.ptr = ptr
         self.msb = msb
@@ -59,6 +64,27 @@ class TransRecTarget:
         s = format_name(s)
         return s
 
+    @classmethod
+    def fromStr(cls, s):
+        """
+        Parse string given from cmdline options to build a TransRecTarget
+        Format: name[:ptr]:msb:lsb
+        """
+        fields = s.split(':')
+        if len(fields) == 3:
+            name = fields[0]
+            msb = int(fields[1])
+            lsb = int(fields[2])
+            ptr = None
+        elif len(fields) == 4:
+            name = fields[0]
+            ptr = int(fields[1])
+            msb = int(fields[2])
+            lsb = int(fields[3])
+        else:
+            raise NotImplementedError("Cannot recognize the format")
+        return TransRecTarget(name, ptr, msb, lsb)
+
 def target_merge(targets):
     targets = copy.deepcopy(targets)
     changed = True
@@ -100,23 +126,34 @@ class PrintTransitionPass(PassBase):
         self.if_stack = []
 
     def visit_ModuleDef(self, node):
+        existing_targets = set()
+        for item in node.items:
+            # expect annotation to be "TransRecTarget=xxx"
+            if isinstance(item, vast.Variable) and item.annotation is not None:
+                if item.annotation.startswith("TransRecTarget"):
+                    target_name = item.annotation.split('=')[1]
+                    assert(target_name not in existing_targets)
+                    existing_targets.add(target_name)
         ldefs = []
         lalways = {}
-
         for target in self.state.transitionPrintTargets:
+            target_name = target.getFormatStr()
+            target_name_delayed = target_name + "__Q__"
             target_ast = target.getAst()
             target_width = getWidthFromInt(self.widthVisitor.getWidth(target_ast))
+
             sens = getClockByName(self.state.refClockMap, target.name)
             if sens is None:
                 print("Warning, skipping transition target {} due to no ref clock".format(target.getStr()))
                 continue
+            if target_name in existing_targets:
+                print("Warning, skipping already recorded transition target {}".format(target.getStr()))
+                continue
             if not sens in lalways:
                 lalways[sens] = vast.Always(sens, vast.Block([]))
 
-            target_name = target.getFormatStr()
-            target_name_delayed = target_name + "__Q__"
-            target_ast = target.getAst()
-            ldefs.append(vast.Logic(target_name_delayed, target_width))
+            def_annotation = "TransRecTarget={}".format(target.getFormatStr())
+            ldefs.append(vast.Logic(target_name_delayed, target_width, annotation=def_annotation))
             lalways[sens].statement.statements.append(
                     vast.NonblockingSubstitution(
                         vast.Identifier(target_name_delayed),

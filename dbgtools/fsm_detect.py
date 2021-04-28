@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 from passes.IdentifierRefPass import IdentifierRefPass
 from passes.TypeInfoPass import TypeInfoPass
-from passes.WidthPass import WidthPass
+from passes.WidthPass import WidthPass, WidthVisitor
 from passes.CanonicalFormPass import CanonicalFormPass
 from passes.ArraySplitPass import ArraySplitPass
 from passes.SimpleRefClockPass import SimpleRefClockPass
@@ -18,7 +18,8 @@ from model.scfifo_simple_model import ScfifoSimpleModel
 def fsm_detect_regParser(subparsers):
     p = subparsers.add_parser('fsm', help="Detect Finate State Machine (FSM) and instrument display")
     p.set_defaults(toolEntry=fsm_entry)
-    p.add_argument("-S", "--state", dest="explicit_states", default=[], type=str, action="append", help="If not emptty, only instrument the FSM state veriables which are both given here and automatically detected")
+    p.add_argument("-S", "--state", dest="explicit_states", default=[], type=str, action="append",
+        help="If not emptty, only instrument the FSM state veriables which are both given here and automatically detected. Format name:msb:lsb. (can be stacked)")
     p.add_argument("--tag", type=str, help="The verilator tag of instrumented display tasks")
 
 def fsm_entry(args, ast):
@@ -43,15 +44,18 @@ def fsm_entry(args, ast):
 
     old_state = pm.state
 
+    width_visitor = WidthVisitor(old_state)
     tgts = set()
     explicit_states = set(args.explicit_states)
-    for i in pm.state.fsm:
-        if len(explicit_states) == 0 or i.name in explicit_states:
+    for identifier in pm.state.fsm:
+        width = width_visitor.getWidth(identifier)
+        fullname = "{name}:{msb}:{lsb}".format(name=identifier.name, msb=width - 1, lsb=0)
+        if len(explicit_states) == 0 or fullname in explicit_states:
             # either
             # (1) no explicit states are specified OR
             # (2) the found fsm var is one of the specified explicit states
-            tgts.add(TransRecTarget(i.name))
-            print(i.name)
+            tgts.add(TransRecTarget.fromStr(fullname))
+            print(fullname)
 
     pm = PassManager()
     pm.state = old_state

@@ -30,7 +30,7 @@ def deps_regParser(subparsers):
     p.add_argument("--data", dest="data", default=False, action="store_true",
         help="detect data dependencies")
     p.add_argument("--tag", type=str, help="The verilator tag of instrumented display tasks")
-    p.add_argument("--variable", dest="vars", type=str, action="append", default=[], help="the variable of interest. format signal:msb:lsb")
+    p.add_argument("--variable", dest="vars", type=str, action="append", default=[], help="the variable of interest. Format is signal[:ptr]:msb:lsb. (can be stacked)")
     p.add_argument("--layer", dest="layer", type=int, default=1, help="the number of layers")
 
 def deps_entry(args, ast):
@@ -63,10 +63,7 @@ def deps_entry(args, ast):
 
     tgts = []
     for signal in args.vars:
-        m = re.findall(r"([0-9a-zA-Z_]+)\:([0-9]+)\:([0-9]+)", signal)
-        assert(len(m) == 1 and len(m[0]) == 3)
-        name, msb, lsb = m[0]
-        tgts.append(TransRecTarget(name, msb=int(msb), lsb=int(lsb)))
+        tgts.append(TransRecTarget.fromStr(signal))
 
     for i in range(0, args.layer):
         old_state = pm.state
