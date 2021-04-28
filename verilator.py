@@ -668,7 +668,7 @@ class VerilatorXMLToAST:
         append_int_pos = vast.IntConst("{}'h0".format(target_width - tree_width))
         append_int_neg = vast.IntConst("{}'h1".format(target_width - tree_width))
         append_int = vast.Cond(
-                vast.Partselect(a, vast.IntConst(str(target_width-1)), vast.IntConst(str(target_width-1))),
+                vast.Partselect(a, vast.IntConst(str(tree_width-1)), vast.IntConst(str(tree_width-1))),
                 append_int_neg,
                 append_int_pos)
         if a.__class__ == vast.Concat:
