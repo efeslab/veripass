@@ -169,11 +169,24 @@ class WidthVisitor(ASTNodeVisitor):
         assert(t.dimensions is None)
         self.widthtbl[node] = t.width
 
+    def visit_SystemCall(self, node):
+        width_1_nodes = set([
+            "onehot", "onehot0"
+        ])
+        width_32_nodes = set([
+            "fopen"
+        ])
+        if node.syscall in width_1_nodes:
+            self.widthtbl[node] = 1
+        elif node.syscall in width_32_nodes:
+            self.widthtbl[node] = 32
+
     def visit_Node(self, node):
         all_children_nodes = set([
             vast.Assign,
             vast.Substitution, vast.BlockingSubstitution, vast.NonblockingSubstitution,
-            vast.IfStatement, vast.Block, vast.Initial
+            vast.IfStatement, vast.Block, vast.Initial,
+            vast.WhileStatement
         ])
         skip_nodes = set([
             vast.SingleStatement,
@@ -185,6 +198,7 @@ class WidthVisitor(ASTNodeVisitor):
         elif node.__class__ in skip_nodes:
             return
         else:
+            print(node)
             assert(0 and "Unhandled Node")
 
 

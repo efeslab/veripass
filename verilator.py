@@ -144,6 +144,12 @@ class VerilatorXMLToAST:
                     left = int(left.replace("32'sh", "0x").replace("32'h", "0x"), 16)
                     right = r[1].get("name")
                     right = int(right.replace("32'sh", "0x").replace("32'h", "0x"), 16)
+
+                    if left < right:
+                        tmp = left
+                        left = right
+                        right = tmp
+
                     #assert(right == 0)
                     assert(left >= 0)
                     width = sub_dtype.width
@@ -165,6 +171,12 @@ class VerilatorXMLToAST:
                         right = "0"
                     left = int(left)
                     right = int(right)
+
+                    if left < right:
+                        tmp = left
+                        left = right
+                        right = tmp
+
                     #assert(right == 0)
                     width = left - right + 1
                     array_len = 0 # 0 means it is not an array
@@ -220,6 +232,8 @@ class VerilatorXMLToAST:
     
     def parse_elem_const(self, elem):
         assert(elem.tag == "const")
+        if elem.get("from_string") == "true":
+            return vast.StringConst(elem.get("str"))
         return vast.IntConst(elem.get("name"))
 
     def parse_elem_comment(self, elem):
@@ -549,7 +563,33 @@ class VerilatorXMLToAST:
         assert(len(l) == 2)
         a = self.parse_elem(l[0])
         b = self.parse_elem(l[1])
+
+        if a.__class__ == vast.IntConst and b.__class__ == vast.IntConst:
+            a_value = verilog_string_to_int(a.value)
+            b_value = verilog_string_to_int(b.value)
+            a_width = a.value[0:a.value.find("'h")+2]
+            b_width = b.value[0:b.value.find("'h")+2]
+            if b_width == "32'h":
+                return vast.IntConst(a_width+hex(a_value>>b_value)[2:])
+
         return vast.Srl(a, b)
+
+    def parse_elem_shiftrs(self, elem):
+        assert(elem.tag == "shiftrs")
+        l = list(elem)
+        assert(len(l) == 2)
+        a = self.parse_elem(l[0])
+        b = self.parse_elem(l[1])
+
+        if a.__class__ == vast.IntConst and b.__class__ == vast.IntConst:
+            a_value = verilog_string_to_int(a.value)
+            b_value = verilog_string_to_int(b.value)
+            a_width = a.value[0:a.value.find("'h")+2]
+            b_width = b.value[0:b.value.find("'h")+2]
+            if b_width == "32'h":
+                return vast.IntConst(a_width+hex(a_value>>b_value)[2:])
+
+        return vast.Sra(a, b)
     
     def parse_elem_shiftl(self, elem):
         assert(elem.tag == "shiftl")
@@ -557,6 +597,15 @@ class VerilatorXMLToAST:
         assert(len(l) == 2)
         a = self.parse_elem(l[0])
         b = self.parse_elem(l[1])
+
+        if a.__class__ == vast.IntConst and b.__class__ == vast.IntConst:
+            a_value = verilog_string_to_int(a.value)
+            b_value = verilog_string_to_int(b.value)
+            a_width = a.value[0:a.value.find("'h")+2]
+            b_width = b.value[0:b.value.find("'h")+2]
+            if b_width == "32'h":
+                return vast.IntConst(a_width+hex(a_value<<b_value)[2:])
+
         return vast.Sll(a, b)
     
     def parse_elem_redand(self, elem):
@@ -612,6 +661,25 @@ class VerilatorXMLToAST:
         a = self.parse_elem(l[0])
         b = self.parse_elem(l[1])
         return vast.GreaterThan(a, b)
+
+    def parse_elem_gts(self, elem):
+        assert(elem.tag == "gts")
+        l = list(elem)
+        assert(len(l) == 2)
+        a = self.parse_elem(l[0])
+        a_width = self.astwidth_visitor.getWidth(a)
+        b = self.parse_elem(l[1])
+        b_width = self.astwidth_visitor.getWidth(b)
+        assert(a_width == b_width)
+        return vast.Cond(
+                vast.Eq(
+                    vast.Partselect(a, vast.IntConst(str(a_width-1)), vast.IntConst(str(a_width-1))),
+                    vast.Partselect(b, vast.IntConst(str(b_width-1)), vast.IntConst(str(b_width-1)))),
+                vast.GreaterThan(a, b),
+                vast.Unot(
+                    vast.GreaterThan(
+                        vast.Partselect(a, vast.IntConst(str(a_width-1)), vast.IntConst(str(a_width-1))),
+                        vast.Partselect(b, vast.IntConst(str(b_width-1)), vast.IntConst(str(b_width-1))))))
     
     def parse_elem_neq(self, elem):
         assert(elem.tag == "neq")
@@ -724,10 +792,7 @@ class VerilatorXMLToAST:
     def parse_elem_readmem(self, elem):
         assert(elem.tag == "readmem")
         l = list(elem)
-        assert(l[0].tag == "const")
-        assert(l[0].get("from_string") == "true")
-        assert(l[1].tag == "varref")
-        filename = vast.StringConst(l[0].get("str"))
+        filename = self.parse_elem(l[0])
         varref = self.parse_elem(l[1])
         return vast.SingleStatement(vast.SystemCall("readmemh", [filename, varref]))
 
@@ -738,7 +803,14 @@ class VerilatorXMLToAST:
     def parse_elem_display(self, elem):
         assert(elem.tag == "display")
         l = list(elem)
-        assert(len(l) == 1)
+        displaytype = elem.get("displaytype")
+        if displaytype == "$display" or displaytype == "$write":
+            assert(len(l) == 1)
+        elif displaytype == "$fdisplay":
+            assert(len(l) == 2)
+        else:
+            print(displaytype)
+            assert(0)
         assert(l[0].tag == "sformatf")
         fmt = l[0].get("name").replace("\n", "\\n")
         if fmt[-2:] == "\\n":
@@ -751,11 +823,53 @@ class VerilatorXMLToAST:
                 args[0] = vast.StringConst(fmt.replace("%m", arg.get("name")))
                 continue
             args.append(self.parse_elem(arg))
-        return vast.SingleStatement(vast.SystemCall("display", args, anno=elem.get("tag")))
+
+        if displaytype == "$display" or displaytype == "$write":
+            return vast.SingleStatement(vast.SystemCall("display", args, anno=elem.get("tag")))
+        elif displaytype == "$fdisplay":
+            return vast.SingleStatement(vast.SystemCall("fdisplay",
+                [self.parse_elem(l[1])] + args,
+                anno=elem.get("tag")))
+        else:
+            assert(0)
     
     def parse_elem_finish(self, elem):
         assert(elem.tag == "finish")
         return vast.SingleStatement(vast.SystemCall("finish", []))
+
+    def parse_elem_valueplusargs(self, elem):
+        assert(elem.tag == "valueplusargs")
+        l = list(elem)
+        assert(len(l) == 2)
+        assert(l[0].tag == "const")
+        assert(l[0].get("from_string") == "true")
+        s = l[0].get("str")
+        b = self.parse_elem(l[1])
+        return vast.SystemCall("value$plusargs", [vast.StringConst(s), b])
+    
+    def parse_elem_testplusargs(self, elem):
+        assert(elem.tag == "testplusargs")
+        s = elem.get("name")
+        return vast.SystemCall("value$plusargs", [vast.StringConst(s)])
+
+    def parse_elem_fopen(self, elem):
+        assert(elem.tag == "fopen")
+        items = []
+        for it in list(elem):
+            items.append(self.parse_elem(it))
+        return vast.SystemCall("fopen", items)
+
+    def parse_elem_while(self, elem):
+        assert(elem.tag == "while")
+        l = list(elem)
+
+        cond = self.parse_elem(l[0])
+
+        items = []
+        for i in range(1, len(l)):
+            items.append(self.parse_elem(l[i]))
+
+        return vast.WhileStatement(cond, vast.Block(items))
     
     def parse_elem_arraysel(self, elem):
         assert(elem.tag == "arraysel")
@@ -807,9 +921,22 @@ class VerilatorXMLToAST:
                     pass
 
         return vast.Pointer(arr, idx)
+
+    def parse_elem_onehot(self, elem):
+        assert(elem.tag == "onehot")
+        l = list(elem)
+        assert(len(l) == 1)
+        return vast.SystemCall("onehot", [self.parse_elem(l[0])])
+
+    def parse_elem_onehot0(self, elem):
+        assert(elem.tag == "onehot0")
+        l = list(elem)
+        assert(len(l) == 1)
+        return vast.SystemCall("onehot0", [self.parse_elem(l[0])])
     
     def parse_elem_if(self, elem):
         assert(elem.tag == "if")
+
         l = list(elem)
         ifs_cnt = int(elem.get("ifs_cnt"))
         elses_cnt = int(elem.get("elses_cnt"))
@@ -1074,7 +1201,11 @@ class VerilatorXMLToAST:
                 elif var_type_name == "bit":
                     p = vast.Logic(var_name, width=width, dimensions=dim)
                     items.append(p)
+                elif var_type_name == "string":
+                    p = vast.String(var_name, width=width, dimensions=dim)
+                    items.append(p)
                 else:
+                    print(var_type_name)
                     assert(0)
         params = vast.Paramlist(params)
         ports = vast.Portlist(ports)
