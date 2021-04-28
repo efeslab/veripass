@@ -3,7 +3,7 @@ from passes.common import PassBase
 from passes.common import getWidthFromInt, getConstantWidth
 from passes.WidthPass import WidthVisitor
 from passes.SimpleRefClockPass import getClockByName
-from utils.Format import format_name
+from utils.Format import format_name, beautify_name
 import copy
 
 """
@@ -57,7 +57,7 @@ class TransRecTarget:
             s += ("[" + str(self.ptr) + "]")
         if self.msb != None:
             s += ("[" + str(self.msb) + ":" + str(self.lsb) + "]")
-        return s
+        return beautify_name(s)
 
     def getFormatStr(self):
         s = self.getStr()
