@@ -41,6 +41,25 @@ class ValidBitTarget:
         s = format_name(s)
         return s
 
+    @classmethod
+    def fromStr(cls, s):
+        """
+        Parse string given from cmdline options to build a TransRecTarget
+        Format: name[:ptr]:index
+        """
+        fields = s.split(':')
+        if len(fields) == 2:
+            name = fields[0]
+            index = int(fields[1])
+            ptr = None
+        elif len(fields) == 3:
+            name = fields[0]
+            ptr = int(fields[1])
+            index = int(fields[2])
+        else:
+            raise NotImplementedError("Cannot recognize the format")
+        return ValidBitTarget(name, ptr, index)
+
 
 """
 A pass to add counting logic for specified variables.
@@ -86,7 +105,8 @@ class InsertCountingPass(PassBase):
             ldefs.append(self.get_counter_def(var))
 
             self.state.generatedSignalsTransRecTarget.append(
-                    TransRecTarget(self.get_counter_name(var)))
+                TransRecTarget.fromStr("{name}:{msb}:{lsb}".format(
+                    name=self.get_counter_name(var), msb=self.state.counterWidth - 1, lsb=0)))
 
             if not sens in lalways:
                 lalways[sens] = vast.Always(sens, vast.Block([]))
