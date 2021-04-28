@@ -85,6 +85,8 @@ class TaskSupportPass(PassBase):
     CYCLE_COUNTER_WIDTH = 64
     CYCLE_COUNTER_NAME = "TASKPASS_cycle_counter"
     INSTRUMENT_TYPE = INSTRUMENT_TYPE_INTELSTP
+    # if INSTRUMENT_TAGS is empty, all display will be instrumented
+    # otherwise, only display with given verilator tags will be instrumented
     INSTRUMENT_TAGS = set()
     # configurations used in INSTRUMENT_TYPE_SWEEP mode
     INSTRUMENT_SWEEP_CFG_WIDTH = None  # should be int, Up to 2^12, 4096 bits

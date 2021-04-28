@@ -53,7 +53,11 @@ def sv2v_entry(args, ast):
             TaskSupportPass.INSTRUMENT_TYPE = TaskSupportPass.INSTRUMENT_TYPE_XILINXILA
         else:
             raise NotImplementedError("Unknown TaskSupport Mode")
+        # If INSTURMENT_TAGS is empty, instrument all display tasks.
         TaskSupportPass.INSTRUMENT_TAGS = set(args.tasksupport_tags)
+        # If not empty, only instrument ones with the given verilator tags. This should also include the display instrumented above.
+        if len(TaskSupportPass.INSTRUMENT_TAGS) > 0:
+            TaskSupportPass.INSTRUMENT_TAGS.add(ArrayBoundaryCheckPass.DISPLAY_TAG)
         pm.register(TaskSupportPass)
     #pm.register(ArraySplitPass)
     pm.runAll(ast)

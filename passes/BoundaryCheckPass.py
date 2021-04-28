@@ -13,6 +13,7 @@ class ArrayBoundaryCheckPass(PassBase):
     """
     Assume the result from TypeInfoPass, and IdentifierRefPass..
     """
+    DISPLAY_TAG = "debug_display_boundary_check"
     def __init__(self, pm, pass_state):
         super().__init__(pm, pass_state, True)
         self.typeInfo = self.state.typeInfo
@@ -46,7 +47,7 @@ class ArrayBoundaryCheckPass(PassBase):
                         vast.SingleStatement(
                             vast.SystemCall("display", [
                                 vast.StringConst(str(node.var) + " overflow")
-                            ], anno="debug_display")),
+                            ], anno=self.DISPLAY_TAG)),
                         None))
             else:
                 self.assign_instrument.append(vast.IfStatement(
@@ -54,7 +55,7 @@ class ArrayBoundaryCheckPass(PassBase):
                         vast.SingleStatement(
                             vast.SystemCall("display", [
                                 vast.StringConst(str(node.var) + " overflow")
-                            ], anno="debug_display")),
+                            ], anno=self.DISPLAY_TAG)),
                         None))
         return node
 
