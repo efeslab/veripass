@@ -2,6 +2,7 @@ import pyverilog.vparser.ast as vast
 from passes.common import PassBase
 from passes.common import getDimensions
 from passes.WidthPass import WidthPass, WidthVisitor
+from pyverilog.ast_code_generator.codegen import ASTCodeGenerator
 from utils.ValueParsing import verilog_string_to_int
 
 """
@@ -20,9 +21,14 @@ class ArrayBoundaryCheckPass(PassBase):
         self.identifierRef = self.state.identifierRef
         self.instrument = []
         self.assign_instrument = []
+        # instrumented_pair is a set of (Pointer.var.name, codegen(Pointer.ptr)), i.e. a set of tuples of strings
+        self.instrumented_pair = set() # should be cleared together with self.instrument
+        self.assign_instrumented_pair = set() # no need to clear
         self.temp_wire_id = 0
         self.in_assign = False
         self.widthVisitor = WidthVisitor(pass_state)
+        # codegen, used to generate the string representation of ptr expressions
+        self.codegen = ASTCodeGenerator()
 
     def get_temp_wire_name(self):
         self.temp_wire_id += 1
@@ -40,8 +46,17 @@ class ArrayBoundaryCheckPass(PassBase):
         if dims[0] == 0:
             return node
         ptrWidth = self.widthVisitor.getWidth(node.ptr)
+        assert(isinstance(node.var, vast.Identifier))
+        var_ptr_pair = (node.var.name, self.codegen.visit(node.ptr))
         if dims[0] < (1 << ptrWidth):
-            if not self.in_assign:
+            if not self.in_assign and \
+                    var_ptr_pair not in self.instrumented_pair and \
+                    var_ptr_pair not in self.assign_instrumented_pair:
+                # if pointer access it not in assign, the check should performed at the same condition as the pointer access
+                # Because the pointer access may not always be valid.
+                # If we already checked the same pointer acesss (determined by (node.var.name, codegen(node.ptr))),
+                #   no matter in the same block of statements or globally in assign statements, we will skip this check.
+                self.instrumented_pair.add(var_ptr_pair)
                 self.instrument.append(vast.IfStatement(
                         vast.GreaterEq(node.ptr, vast.IntConst(str(ptrWidth)+"'h"+hex(dims[0])[2:])),
                         vast.SingleStatement(
@@ -49,7 +64,10 @@ class ArrayBoundaryCheckPass(PassBase):
                                 vast.StringConst(str(node.var) + " overflow")
                             ], anno=self.DISPLAY_TAG)),
                         None))
-            else:
+            elif var_ptr_pair not in self.assign_instrumented_pair:
+                # For pointer access in assign statements, the check should always performed. But note that when recording, the check is still performed at clock edges.
+                # We only skip this type of checks when it has been checked globally (due to other assign statements).c
+                self.assign_instrumented_pair.add(var_ptr_pair)
                 self.assign_instrument.append(vast.IfStatement(
                         vast.GreaterEq(node.ptr, vast.IntConst(str(ptrWidth)+"'h"+hex(dims[0])[2:])),
                         vast.SingleStatement(

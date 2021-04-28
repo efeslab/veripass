@@ -1,6 +1,5 @@
 import sympy.logic.boolalg as boolalg
 import pyverilog.vparser.ast as vast
-from pyverilog.ast_code_generator.codegen import ASTCodeGenerator
 
 from passes.common import PassBase
 from passes.common import getWidthFromInt
