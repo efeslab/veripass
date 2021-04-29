@@ -29,6 +29,7 @@ def sv2v_regParser(subparsers):
     p.add_argument("--tasksupport-tags", type=str, default=[], action="append", help="The tag (e.g. debug_display) enabling instrumentations of specific display tasks")
     p.add_argument("--tasksupport-log2width", default=0, type=int, help="The log2(width) of the fake data to instrument recording for")
     p.add_argument("--tasksupport-log2depth", default=0, type=int, help="The log2(depth) of the fake data to instrument recording for")
+    p.add_argument("--arrayboundcheck", action="store_true", help="Instrument array bound checking.")
 
 def sv2v_entry(args, ast):
     print("Split Variables: {}".format(args.split))
@@ -41,7 +42,8 @@ def sv2v_entry(args, ast):
     pm.register(TypeInfoPass)
     pm.register(WidthPass)
     pm.register(CanonicalFormPass)
-    pm.register(ArrayBoundaryCheckPass)
+    if args.arrayboundcheck:
+        pm.register(ArrayBoundaryCheckPass)
     if args.tasksupport:
         if args.tasksupport_mode == "SWEEP":
             TaskSupportPass.INSTRUMENT_TYPE = TaskSupportPass.INSTRUMENT_TYPE_SWEEP
