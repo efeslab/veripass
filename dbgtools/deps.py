@@ -65,6 +65,10 @@ def deps_entry(args, ast):
     for signal in args.vars:
         tgts.append(TransRecTarget.fromStr(signal))
 
+    tgts_list = tgts
+    print("Recorded at layer 0")
+    for i in tgts:
+        print(i.getStr())
     for i in range(0, args.layer):
         old_state = pm.state
         pm = PassManager()
@@ -87,6 +91,8 @@ def deps_entry(args, ast):
         print("Recorded at layer", i+1)
         for i in tgts:
             print(i.getStr())
+        tgts_list += tgts
+        tgts_list = target_merge(tgts_list)
 
     old_state = pm.state
     pm = PassManager()
@@ -94,7 +100,7 @@ def deps_entry(args, ast):
     pm.register(TypeInfoPass)
     pm.register(WidthPass)
     pm.state = old_state
-    pm.state.transitionPrintTargets = tgts
+    pm.state.transitionPrintTargets = tgts_list
     pm.register(SimpleRefClockPass)
     if args.tag:
         PrintTransitionPass.DISPLAY_TAG = args.tag
