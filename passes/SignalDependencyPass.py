@@ -10,8 +10,15 @@ import pyverilog.utils.util as util
 from passes.PrintTransitionPass import TransRecTarget, target_merge
 from passes.FlowGuardInstrumentationPass import DFDataWidthVisitor
 from passes.FlowGuardInstrumentationPass import DFBuildAstVisitor
+from utils.DFBuildAstVisitor import DFBuildAstVisitor
+
 
 class DataDepEntry:
+    """
+    DFBuildVisitor needs to be initialized outside with dataflow analysis results
+    It is used to convert dataflow expression structure to vast.Node
+    """
+    DFBuildVisitor = None
     def __init__(self, DFTerm, msb=None, lsb=None):
         self.DFTerm = DFTerm
         self.msb = msb
@@ -26,15 +33,12 @@ class DataDepEntry:
             return str(self.DFTerm.name.scopechain[1])
         else:
             raise NotImplementedError("Invalid DFTerm")
-    def getStr(self):
-        s = self.getName()
-        if self.msb != None:
-            s += ("[" + str(self.msb) + ":" + str(self.lsb) + "]")
-        return s
 
     def getTransRecTarget(self):
         if isinstance(self.DFTerm, df.DFPointer):
             ptr = self.DFTerm.ptr
+            if ptr:
+                ptr = self.DFBuildVisitor.visit(ptr)
         else:
             ptr = None
         t = TransRecTarget(self.getName(), ptr,
@@ -216,6 +220,7 @@ class SignalDependencyPass(PassBase):
     def __init__(self, pm, pass_state):
         super().__init__(pm, pass_state, False)
         if hasattr(self.state, "terms") and hasattr(self.state, "binddict"):
+            DataDepEntry.DFBuildVisitor = DFBuildAstVisitor(self.state.terms, self.state.binddict)
             pass
         else:
             self.state.terms = None
@@ -251,6 +256,7 @@ class SignalDependencyPass(PassBase):
 
             self.state.terms = dataflow.getTerms()
             self.state.binddict = dataflow.getBinddict()
+            DataDepEntry.DFBuildVisitor = DFBuildAstVisitor(self.state.terms, self.state.binddict)
 
         terms = self.state.terms
         binddict = self.state.binddict

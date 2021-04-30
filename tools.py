@@ -15,7 +15,7 @@ def output_regParser(subparsers):
     """
     output an ast to a file
     """
-    p = subparsers.add_parser('output', help="Output an ast to a file")
+    p = subparsers.add_parser('output', help="Output the ast processed so far to a file")
     p.add_argument("--not-retag-synthesis", action="store_true", help="Do not retag \"synthesis\" metacommands. Should be used to generate synthesizable code. (default=False)")
     p.set_defaults(toolEntry=output_entry)
     p.add_argument("-o", dest="output", type=str, help="output path")
