@@ -9,7 +9,6 @@ from passes.WidthPass import WidthPass
 from passes.CanonicalFormPass import CanonicalFormPass
 from passes.TaskSupportPass import TaskSupportPass
 from passes.ArraySplitPass import ArraySplitPass
-from passes.Logic2RegPass import Logic2RegPass
 from passes.BoundaryCheckPass import ArrayBoundaryCheckPass
 from passes.common import PassManager
 
@@ -37,7 +36,6 @@ def sv2v_entry(args, ast):
     pm = PassManager()
     if args.reset:
         pm.state.set_reset(args.reset)
-    #pm.register(Logic2RegPass)
     pm.register(IdentifierRefPass)
     pm.register(TypeInfoPass)
     pm.register(WidthPass)

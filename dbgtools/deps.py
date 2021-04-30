@@ -10,7 +10,6 @@ from passes.TypeInfoPass import TypeInfoPass
 from passes.WidthPass import WidthPass
 from passes.CanonicalFormPass import CanonicalFormPass
 from passes.ArraySplitPass import ArraySplitPass
-from passes.Logic2RegPass import Logic2RegPass
 from passes.SimpleRefClockPass import SimpleRefClockPass
 from passes.BoundaryCheckPass import ArrayBoundaryCheckPass
 from passes.StateMachineDetectionPass import StateMachineDetectionPass
@@ -46,7 +45,6 @@ def deps_entry(args, ast):
     model_list = [("altsyncram", altsyncram), ("dcfifo", dcfifo), ("scfifo", scfifo)]
 
     pm = PassManager()
-    pm.register(Logic2RegPass)
     pm.register(IdentifierRefPass)
     pm.register(TypeInfoPass)
     pm.register(WidthPass)
@@ -55,7 +53,6 @@ def deps_entry(args, ast):
     pm.runAll(ast)
 
     pm = PassManager()
-    pm.register(Logic2RegPass)
     pm.register(IdentifierRefPass)
     pm.register(TypeInfoPass)
     pm.register(WidthPass)
