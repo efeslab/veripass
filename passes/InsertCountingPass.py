@@ -2,7 +2,7 @@ import pyverilog.vparser.ast as vast
 from passes.common import PassBase
 from passes.common import getDimensions, getConstantWidth, getWidthFromInt, getWidth
 from passes.PrintTransitionPass import TransRecTarget
-from utils.Format import format_name
+from utils.Format import escape_string
 
 class ValidBitTarget:
     def __init__(self, name, ptr=None, index=None):
@@ -38,7 +38,7 @@ class ValidBitTarget:
 
     def getFormatStr(self):
         s = self.getStr()
-        s = format_name(s)
+        s = escape_string(s)
         return s
 
     @classmethod

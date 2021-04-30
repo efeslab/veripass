@@ -3,7 +3,8 @@ from passes.common import PassBase
 from passes.common import getWidthFromInt, getConstantWidth
 from passes.WidthPass import WidthVisitor
 from passes.SimpleRefClockPass import getClockByName
-from utils.Format import format_name, beautify_name
+from pyverilog.ast_code_generator.codegen import ASTCodeGenerator
+from utils.Format import escape_string, beautify_string
 import copy
 
 """
@@ -13,70 +14,74 @@ A pass to print out variable value changes.
 class TransRecTarget:
     """
     A TransRecTarget tracks a verilog variable whose value changes should be logged via display tasks.
-    The variable must have a known width (msb and lsb) but can have an optional pointer index.
+    The variable is defined by argument "ast", a pyverilog ast tree, which has a known width (msb and lsb) and an optional pointer index.
+    In brief, the variable should look like name[:ptr]:msb:lsb.
+    name is str, representing a verilog identifier.
+    msb and lsb have to be integer
+    ptr is a vast expression.
+    The width (msb and lsb) is mandatory because the need of deduplication.
     """
+    # codegen is used to render a TransRecTarget as a string
+    codegen = ASTCodeGenerator()
     def __init__(self, name, ptr, msb, lsb, enableData=True, enableControl=True):
-        assert(msb is not None and lsb is not None)
+        assert(isinstance(name, str) and isinstance(msb, int) and isinstance(lsb, int))
+        assert(ptr is None or isinstance(ptr, vast.Node))
         self.name = name
         self.ptr = ptr
         self.msb = msb
         self.lsb = lsb
+        self.ast = self.buildAST()
         self.enableData = enableData
         self.enableControl = enableControl
 
-        if msb != None:
-            assert(lsb != None)
-
-    def isArray(self):
-        return self.ptr != None
-
-    def isSelect(self):
-        return self.lsb != None
-
     def getAst(self):
-        if not self.isArray() and not self.isSelect():
-            return vast.Identifier(self.name)
-        elif not self.isArray() and self.isSelect():
-            return vast.Partselect(vast.Identifier(self.name),
-                    vast.IntConst(str(self.msb)),
-                    vast.IntConst(str(self.lsb)))
-        elif self.isArray() and not self.isSelect():
-            return vast.Pointer(vast.Identifier(self.name),
-                    vast.IntConst(str(self.ptr)))
-        elif self.isArray() and self.isSelect():
-            return vast.Partselect(
-                    vast.Pointer(
-                        vast.Identifier(self.name),
-                        vast.IntConst(str(self.ptr))),
-                    vast.IntConst(str(self.msb)),
-                    vast.IntConst(str(self.lsb)))
+        return self.ast
 
     def getStr(self):
-        s = self.name
-        if self.ptr != None:
-            s += ("[" + str(self.ptr) + "]")
-        if self.msb != None:
-            s += ("[" + str(self.msb) + ":" + str(self.lsb) + "]")
-        return beautify_name(s)
+        aststr = self.codegen.visit(self.ast)
+        return aststr
+
+    def getBeautyStr(self):
+        # to handle nested, already escaped string
+        return beautify_string(self.getStr())
 
     def getFormatStr(self):
         s = self.getStr()
-        s = format_name(s)
-        return s
+        return escape_string(s)
+
+    def buildAST(self):
+        """
+        Build a vast.Node based on the components of a TransRecTarget
+        ptr is None or vast.Node
+        msb and lsb are integers
+        """
+        if self.ptr:
+            return vast.Partselect(
+                    vast.Pointer(vast.Identifier(self.name), self.ptr),
+                    vast.IntConst(str(self.msb)),
+                    vast.IntConst(str(self.lsb)))
+        else:
+            return vast.Partselect(
+                    vast.Identifier(self.name),
+                    vast.IntConst(str(self.msb)),
+                    vast.IntConst(str(self.lsb)))
 
     @classmethod
     def fromStr(cls, s):
         """
         Parse string given from cmdline options to build a TransRecTarget
         Format: name[:ptr]:msb:lsb
+        ptr, msb, lsb have to be integers
         """
         fields = s.split(':')
         if len(fields) == 3:
+            # name:msb:lsb
             name = fields[0]
             msb = int(fields[1])
             lsb = int(fields[2])
             ptr = None
         elif len(fields) == 4:
+            # name:ptr:msb:lsb
             name = fields[0]
             ptr = int(fields[1])
             msb = int(fields[2])
@@ -127,6 +132,7 @@ class PrintTransitionPass(PassBase):
 
     def visit_ModuleDef(self, node):
         existing_targets = set()
+        existing_shadow_names = set()
         for item in node.items:
             # expect annotation to be "TransRecTarget=xxx"
             if isinstance(item, vast.Variable) and item.annotation is not None:
@@ -134,23 +140,35 @@ class PrintTransitionPass(PassBase):
                     target_name = item.annotation.split('=')[1]
                     assert(target_name not in existing_targets)
                     existing_targets.add(target_name)
+                    existing_shadow_names.add(item.name)
         ldefs = []
         lalways = {}
         for target in self.state.transitionPrintTargets:
-            target_name = target.getFormatStr()
-            target_name_delayed = target_name + "__Q__"
-            target_ast = target.getAst()
-            target_width = getWidthFromInt(self.widthVisitor.getWidth(target_ast))
-
+            # skip if there is no ref clock
             sens = getClockByName(self.state.refClockMap, target.name)
             if sens is None:
                 print("Warning, skipping transition target {} due to no ref clock".format(target.getStr()))
                 continue
+            if not sens in lalways:
+                lalways[sens] = vast.Always(sens, vast.Block([]))
+
+            # skip if the transition target is duplicated
+            target_name = target.getFormatStr()
             if target_name in existing_targets:
                 print("Warning, skipping already recorded transition target {}".format(target.getStr()))
                 continue
-            if not sens in lalways:
-                lalways[sens] = vast.Always(sens, vast.Block([]))
+            existing_targets.add(target_name)
+            # find a name for the "shadow" signal (delayed by one cycle to detect changes)
+            target_name_delayed = target_name + "__Q__"
+            if len(target_name_delayed) > 128:
+                # if the target_name (escaped string) is too long, use the hash instead.
+                # note that the hash collision is not handled
+                # note that the hash value could be negative, so we still need to escape
+                target_name_delayed = escape_string("TransRecTarget_{:X}__Q__".format(hash(target_name)))
+                assert(target_name_delayed not in existing_shadow_names)
+                existing_shadow_names.add(target_name_delayed)
+            target_ast = target.getAst()
+            target_width = getWidthFromInt(self.widthVisitor.getWidth(target_ast))
 
             def_annotation = "TransRecTarget={}".format(target_name)
             ldefs.append(vast.Logic(target_name_delayed, target_width, annotation=def_annotation))
@@ -162,7 +180,7 @@ class PrintTransitionPass(PassBase):
                 vast.IfStatement(
                     vast.NotEq(target_ast, vast.Identifier(target_name_delayed)),
                     vast.SingleStatement(vast.SystemCall("display", [
-                        vast.StringConst("[%0t] {} updated to %h".format(target.getStr())),
+                        vast.StringConst("[%0t] {} updated to %h".format(target.getBeautyStr())),
                         vast.SystemCall("time", []),
                         target.getAst()],
                         anno=self.DISPLAY_TAG
