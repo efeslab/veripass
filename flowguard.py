@@ -97,6 +97,7 @@ if args.filtered_list != None:
     flowguardpass.set_filtered(args.filtered_list)
 flowguardpass.instrument()
 
+TaskSupportPass.INSTRUMENT_TAGS = {FlowGuardInstrumentationPass.DISPLAY_TAG}
 # post instrumentation passes, for compilation purpose
 pm = PassManager()
 pm.register(IdentifierRefPass)

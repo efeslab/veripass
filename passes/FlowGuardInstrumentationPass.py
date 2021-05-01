@@ -693,6 +693,7 @@ class GraphNode:
 #            items += self.visit(child)
 
 class FlowGuardInstrumentationPass:
+    DISPLAY_TAG = "debug_display_flowguard"
     def __init__(self, ast, terms, binddict, data_in, data_in_valid, 
             data_out, reset, identifierRef, typeInfo, gephi=False,
             optimizeGen=True):
@@ -1553,7 +1554,7 @@ class FlowGuardInstrumentationPass:
                     vast.SingleStatement(vast.SystemCall("display", [
                         vast.StringConst("[%0t] %%loss: " + target.toStr()),
                         vast.SystemCall("time", [])
-                    ], anno="debug_display")),
+                    ], anno=self.DISPLAY_TAG)),
                     None)
         else:
             builder = DFBuildAstVisitor(self.terms, self.binddict)
@@ -1564,7 +1565,7 @@ class FlowGuardInstrumentationPass:
                         vast.StringConst("[%0t] %%loss: " + target.toStr() + " ptr=h%h"),
                         vast.SystemCall("time", []),
                         builder.visit(tgt.ptr)
-                    ], anno="debug_display")),
+                    ], anno=self.DISPLAY_TAG)),
                     None)
 
         return r
