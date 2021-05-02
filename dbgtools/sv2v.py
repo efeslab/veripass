@@ -51,14 +51,14 @@ def sv2v_entry(args, ast):
             TaskSupportPass.INSTRUMENT_TYPE = TaskSupportPass.INSTRUMENT_TYPE_SWEEP
             TaskSupportPass.INSTRUMENT_SWEEP_CFG_WIDTH = 2**args.tasksupport_log2width
             TaskSupportPass.INSTRUMENT_SWEEP_CFG_DEPTH = 2**args.tasksupport_log2depth
-            if args.tasksupport_ila_tcl:
-                XilinxILA.ILA_TCL_OUTPUT = args.tasksupport_ila_tcl
         elif args.tasksupport_mode == "STP":
             TaskSupportPass.INSTRUMENT_TYPE = TaskSupportPass.INSTRUMENT_TYPE_INTELSTP
         elif args.tasksupport_mode == "ILA":
             TaskSupportPass.INSTRUMENT_TYPE = TaskSupportPass.INSTRUMENT_TYPE_XILINXILA
         else:
             raise NotImplementedError("Unknown TaskSupport Mode")
+        if args.tasksupport_ila_tcl:
+            XilinxILA.ILA_TCL_OUTPUT = args.tasksupport_ila_tcl
         # If INSTURMENT_TAGS is empty, instrument all display tasks.
         TaskSupportPass.INSTRUMENT_TAGS = set(args.tasksupport_tags)
         # If not empty, only instrument ones with the given verilator tags. This should also include the display instrumented above.
