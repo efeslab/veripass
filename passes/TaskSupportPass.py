@@ -71,9 +71,10 @@ class TaskSupportPass(PassBase):
     Available configuration options
     """
     # Options for INSTRUMENT_TYPE
-    INSTRUMENT_TYPE_SWEEP = 0
-    INSTRUMENT_TYPE_INTELSTP = 1
-    INSTRUMENT_TYPE_XILINXILA = 2
+    INSTRUMENT_TYPE_SWEEPSTP = 0
+    INSTRUMENT_TYPE_SWEEPILA = 1
+    INSTRUMENT_TYPE_INTELSTP = 2
+    INSTRUMENT_TYPE_XILINXILA = 3
 
     """
     Configurations:
@@ -142,22 +143,28 @@ class TaskSupportPass(PassBase):
         clock = vast.Identifier(clock_name)
         new_cnt_def, new_cnt_always = self.create_cycle_counter_statements(
             clock)
-        cond_wire_defs, cond_wires, display_args, arg_widths = self.getInstrumentationPlan()
-        if self.INSTRUMENT_TYPE == self.INSTRUMENT_TYPE_SWEEP:
-            instance = self.getFakeSTPInstrumentation(
-                clock)
-        elif self.INSTRUMENT_TYPE == self.INSTRUMENT_TYPE_INTELSTP:
-            instance = self.getSTPInstrumentation(
-                clock, cond_wires, display_args, arg_widths)
-        elif self.INSTRUMENT_TYPE == self.INSTRUMENT_TYPE_XILINXILA:
-            instance = self.getILAInstrumentation(
-                clock, cond_wires, display_args, arg_widths)
-        else:
-            raise NotImplementedError("Unknown instrumentation type")
         node.items.insert(0, new_cnt_def)
         node.items.append(new_cnt_always)
-        node.items.extend(cond_wire_defs)
-        node.items.append(instance)
+        if self.INSTRUMENT_TYPE == self.INSTRUMENT_TYPE_SWEEPSTP:
+            instance = self.getFakeSTPInstrumentation(clock)
+            node.items.append(instance)
+        elif self.INSTRUMENT_TYPE == self.INSTRUMENT_TYPE_SWEEPILA:
+            instance = self.getFakeILAInstrumentation(clock)
+            node.items.append(instance)
+        elif self.INSTRUMENT_TYPE == self.INSTRUMENT_TYPE_INTELSTP:
+            cond_wire_defs, cond_wires, display_args, arg_widths = self.getInstrumentationPlan()
+            instance = self.getSTPInstrumentation(
+                clock, cond_wires, display_args, arg_widths)
+            node.items.extend(cond_wire_defs)
+            node.items.append(instance)
+        elif self.INSTRUMENT_TYPE == self.INSTRUMENT_TYPE_XILINXILA:
+            cond_wire_defs, cond_wires, display_args, arg_widths = self.getInstrumentationPlan()
+            instance = self.getILAInstrumentation(
+                clock, cond_wires, display_args, arg_widths)
+            node.items.extend(cond_wire_defs)
+            node.items.append(instance)
+        else:
+            raise NotImplementedError("Unknown instrumentation type")
 
     def visit_Always(self, node):
         # self.always is to track the senslist of always to which each display tasks belong
@@ -280,11 +287,17 @@ class TaskSupportPass(PassBase):
         return stpinstance.getInstance()
 
     def getILAInstrumentation(self, clk, cond_wires, display_args, arg_widths):
-        data_trigger_list = [(cond, 1) for cond in cond_wires]
-        data_list = list(zip(display_args, arg_widths))
-        for arg, arg_width in data_list:
+        """
+        Encoding:
+        make all cond_wires and display_args as data-only probes
+        make the OR of all cond_wires as a trigger-only probe
+        """
+        cond_data_list = [(cond, 1) for cond in cond_wires]
+        display_args_list = list(zip(display_args, arg_widths))
+        trace_enable_signal = reduce(vast.Lor, cond_wires)
+        for arg, arg_width in display_args_list:
             self.state.displayarg_width[self.astgen.visit(arg)] = arg_width
-        ila_inst = XilinxILA(clk, data_trigger_list, data_list, [])
+        ila_inst = XilinxILA(clk, [], cond_data_list + display_args_list, [(trace_enable_signal, 1)])
         return ila_inst.getInstance()
 
     def getFakeSTPInstrumentation(self, clk):
@@ -311,6 +324,21 @@ class TaskSupportPass(PassBase):
         stp_config.param_config["SLD_SAMPLE_DEPTH"] = self.INSTRUMENT_SWEEP_CFG_DEPTH
         stpinstance = IntelSignalTapII(stp_config, self.RECORDING_EMULATED)
         return stpinstance.getInstance()
+
+    def getFakeILAInstrumentation(self, clk):
+        """
+        Instrument ILA to study the resource overhead over a given sweep of data width and sample depth.
+        The instrumentation will only record garbage data constructed from the cycle counter
+        The sweep uses the combinations of cycle counters as data-only probes.
+        """
+        probe_list = [ (self.cnt, self.cnt_width) for i in range(
+            self.INSTRUMENT_SWEEP_CFG_WIDTH // self.cnt_width) ]
+        remain_width = self.INSTRUMENT_SWEEP_CFG_WIDTH % self.cnt_width
+        if remain_width > 0:
+            w = getWidthFromInt(remain_width)
+            probe_list.append((vast.Partselect(self.cnt, w.msb, w.lsb), remain_width))
+        ila_inst = XilinxILA(clk, [], probe_list, [(vast.IntConst("1"), 1)], self.INSTRUMENT_SWEEP_CFG_DEPTH)
+        return ila_inst.getInstance()
 
     def create_cycle_counter_statements(self, clk):
         """
