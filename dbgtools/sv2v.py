@@ -27,8 +27,8 @@ def sv2v_regParser(subparsers):
     p.add_argument("--tasksupport", default=False, action="store_true", help="whether to run TaskSupportPass")
     p.add_argument("--tasksupport-mode", default='STP', choices=['STP', 'SWEEPSTP', 'SWEEPILA', 'ILA'], help="in what mode to run TaskSupportPass (default is STP)")
     p.add_argument("--tasksupport-tags", type=str, default=[], action="append", help="The tag (e.g. debug_display) enabling instrumentations of specific display tasks")
-    p.add_argument("--tasksupport-log2width", default=0, type=int, help="The log2(width) of the fake data to instrument recording for")
-    p.add_argument("--tasksupport-log2depth", default=0, type=int, help="The log2(depth) of the fake data to instrument recording for")
+    p.add_argument("--tasksupport-log2width", default=None, type=int, help="The log2(width) of the fake data to instrument recording for")
+    p.add_argument("--tasksupport-log2depth", default=None, type=int, help="The log2(depth) of the fake data to instrument recording for")
     p.add_argument("--tasksupport-ila-tcl", type=str, help="The path of the generated ila tcl scripts, which configs the ila IP with proper properties.")
     p.add_argument("--arrayboundcheck", action="store_true", help="Instrument array bound checking.")
 
@@ -57,8 +57,12 @@ def sv2v_entry(args, ast):
             TaskSupportPass.INSTRUMENT_SWEEP_CFG_DEPTH = 2**args.tasksupport_log2depth
         elif args.tasksupport_mode == "STP":
             TaskSupportPass.INSTRUMENT_TYPE = TaskSupportPass.INSTRUMENT_TYPE_INTELSTP
+            if args.tasksupport_log2depth:
+                TaskSupportPass.INSTRUMENT_SAMPLE_DEPTH = 2**args.tasksupport_log2depth
         elif args.tasksupport_mode == "ILA":
             TaskSupportPass.INSTRUMENT_TYPE = TaskSupportPass.INSTRUMENT_TYPE_XILINXILA
+            if args.tasksupport_log2depth:
+                TaskSupportPass.INSTRUMENT_SAMPLE_DEPTH = 2**args.tasksupport_log2depth
         else:
             raise NotImplementedError("Unknown TaskSupport Mode")
         if args.tasksupport_ila_tcl:

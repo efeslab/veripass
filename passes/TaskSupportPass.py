@@ -86,6 +86,7 @@ class TaskSupportPass(PassBase):
     CYCLE_COUNTER_WIDTH = 64
     CYCLE_COUNTER_NAME = "TASKPASS_cycle_counter"
     INSTRUMENT_TYPE = INSTRUMENT_TYPE_INTELSTP
+    INSTRUMENT_SAMPLE_DEPTH = 8192
     # if INSTRUMENT_TAGS is empty, all display will be instrumented
     # otherwise, only display with given verilator tags will be instrumented
     INSTRUMENT_TAGS = set()
@@ -283,6 +284,7 @@ class TaskSupportPass(PassBase):
         }
         stp_config = IntelSignalTapIIConfig(stp_port_config)
         stp_config.param_config["SLD_DATA_BITS"] = total_trace_width
+        stp_config.param_config["SLD_SAMPLE_DEPTH"] = self.INSTRUMENT_SAMPLE_DEPTH
         stpinstance = IntelSignalTapII(stp_config, self.RECORDING_EMULATED)
         return stpinstance.getInstance()
 
@@ -297,7 +299,9 @@ class TaskSupportPass(PassBase):
         trace_enable_signal = reduce(vast.Lor, cond_wires)
         for arg, arg_width in display_args_list:
             self.state.displayarg_width[self.astgen.visit(arg)] = arg_width
-        ila_inst = XilinxILA(clk, [], cond_data_list + display_args_list, [(trace_enable_signal, 1)])
+        trace_data = vast.Concat(cond_wires + display_args)
+        trace_data_width = sum(arg_widths) + len(cond_wires)
+        ila_inst = XilinxILA(clk, [], [(trace_data, trace_data_width)], [(trace_enable_signal, 1)], self.INSTRUMENT_SAMPLE_DEPTH)
         return ila_inst.getInstance()
 
     def getFakeSTPInstrumentation(self, clk):
@@ -331,13 +335,14 @@ class TaskSupportPass(PassBase):
         The instrumentation will only record garbage data constructed from the cycle counter
         The sweep uses the combinations of cycle counters as data-only probes.
         """
-        probe_list = [ (self.cnt, self.cnt_width) for i in range(
+        probe_list = [ self.cnt for i in range(
             self.INSTRUMENT_SWEEP_CFG_WIDTH // self.cnt_width) ]
         remain_width = self.INSTRUMENT_SWEEP_CFG_WIDTH % self.cnt_width
         if remain_width > 0:
             w = getWidthFromInt(remain_width)
-            probe_list.append((vast.Partselect(self.cnt, w.msb, w.lsb), remain_width))
-        ila_inst = XilinxILA(clk, [], probe_list, [(vast.IntConst("1"), 1)], self.INSTRUMENT_SWEEP_CFG_DEPTH)
+            probe_list.append(vast.Partselect(self.cnt, w.msb, w.lsb))
+        fake_data = vast.Concat(probe_list)
+        ila_inst = XilinxILA(clk, [], [(fake_data, self.INSTRUMENT_SWEEP_CFG_WIDTH)], [(vast.IntConst("1"), 1)], self.INSTRUMENT_SWEEP_CFG_DEPTH)
         return ila_inst.getInstance()
 
     def create_cycle_counter_statements(self, clk):
