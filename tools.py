@@ -2,6 +2,7 @@
 import argparse
 import shlex
 import copy
+import json
 from verilator import Verilator
 from verilator import ASTCodeGenerator
 from dbgtools.sv2v import sv2v_regParser
@@ -10,6 +11,7 @@ from dbgtools.deps import deps_regParser
 from dbgtools.autocnt import autocnt_regParser
 from passes.common import PassManager
 from passes.VerilatorReTagPass import VerilatorReTagPass
+from jinja2 import Environment, FileSystemLoader
 
 def output_regParser(subparsers):
     """
@@ -52,6 +54,7 @@ input_parser.add_argument("-f", dest="files", type=str, action="append", help="s
 output_parser = parser.add_mutually_exclusive_group(required=False)
 output_parser.add_argument("--config", type=str, help="A config file, one tool subcommand per line.")
 output_parser.add_argument("-o", dest="output", help="output path")
+parser.add_argument("--config-override", type=str, default="{}", help="A json string which can override the given config")
 parser.add_argument("--reset", default=None, type=str, help="Specify the reset identifier (e.g. RESET or !RESETN)")
 parser.add_argument("--recording-emulated", default=False, action="store_true", help="Use the emulated data recording implementation. (default=False)")
 parser.add_argument("--not-retag-synthesis", action="store_true", help="Do not retag \"synthesis\" metacommands. Should be used to generate synthesizable code. (default=False)")
@@ -70,15 +73,17 @@ v = Verilator(top_module_name=args.top_module, desc_file=args.desc_file, files=a
 ast = v.get_ast()
 
 if args.config:
-    with open(args.config, "r") as f:
-        content = f.read()
-        content = content.replace('\\\n', '')
-        for cmdline in content.splitlines():
-            if len(cmdline) == 0 or cmdline[0] == '#':
-                continue
-            conf_args = copy.deepcopy(args)
-            parser.parse_args(shlex.split(cmdline), namespace=conf_args)
-            conf_args.toolEntry(conf_args, ast)
+    config_override = json.loads(args.config_override)
+    env = Environment(loader=FileSystemLoader('./'))
+    template = env.get_template(args.config)
+    content = template.render(config_override)
+    content = content.replace('\\\n', '')
+    for cmdline in content.splitlines():
+        if len(cmdline) == 0 or cmdline[0] == '#':
+            continue
+        conf_args = copy.deepcopy(args)
+        parser.parse_args(shlex.split(cmdline), namespace=conf_args)
+        conf_args.toolEntry(conf_args, ast)
 else:
     args.toolEntry(args, ast)
     output_entry(args, ast)
