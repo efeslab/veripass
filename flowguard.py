@@ -36,6 +36,7 @@ parser.add_argument("--sink", default=None, dest="sink", help="sink of the data 
 parser.add_argument("--source-valid", default=None, dest="source_valid", help="the valid signal for the source")
 parser.add_argument("--reset", default=None, dest="reset", help="the reset signal")
 parser.add_argument("--ignore-stop", default=False, dest="ignore_stop", action="store_true", help="ignore $stop")
+parser.add_argument("--recording-emulated", default=False, action="store_true", help="Use the emulated data recording implementation. (default=False)")
 
 args = parser.parse_args()
 print("Top Module: {}".format(args.top_module))
@@ -98,6 +99,7 @@ if args.filtered_list != None:
 flowguardpass.instrument()
 
 TaskSupportPass.INSTRUMENT_TAGS = {FlowGuardInstrumentationPass.DISPLAY_TAG}
+TaskSupportPass.RECORDING_EMULATED = args.recording_emulated
 # post instrumentation passes, for compilation purpose
 pm = PassManager()
 pm.register(IdentifierRefPass)
@@ -117,3 +119,11 @@ with open(args.output, 'w+') as f:
 
 end = time.time()
 print(end - start)
+if hasattr(pm.state, "condname2display"):
+    with open(args.output+".displayinfo.txt", 'w+') as f:
+        for condname in pm.state.condname2display:
+            f.write("{} {}\n".format(condname, pm.state.condname2display[condname]))
+if hasattr(pm.state, "displayarg_width"):
+    with open(args.output+".widthinfo.txt", 'w+') as f:
+        for varname in pm.state.displayarg_width:
+            f.write("{} {}\n".format(varname, pm.state.displayarg_width[varname]))
