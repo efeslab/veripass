@@ -180,7 +180,7 @@ class PrintTransitionPass(PassBase):
                 vast.IfStatement(
                     vast.NotEq(target_ast, vast.Identifier(target_name_delayed)),
                     vast.SingleStatement(vast.SystemCall("display", [
-                        vast.StringConst("[%0t] {} updated to %h".format(target.getBeautyStr())),
+                        vast.StringConst("%%UPDATE: [%0t] {} updated to %h".format(target.getBeautyStr())),
                         vast.SystemCall("time", []),
                         target.getAst()],
                         anno=self.DISPLAY_TAG

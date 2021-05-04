@@ -1,12 +1,15 @@
 import pyverilog.vparser.ast as vast
 import os
 
-ILA_MODULE_NAME = "ila_0"
+ILA_MODULE_NAME_PREFIX = "ila_"
 # "C_PROBE<N>_TYPE" {0}: DATA_AND_TRIGGER, {1}: DATA, {2}: TRIGGER
 
 
 class XilinxILA(object):
-    def __init__(self, clk, data_trigger_list, data_list, trigger_list):
+
+    ILA_INSTANCE_CNT = 0
+
+    def __init__(self, clk, data_trigger_list, data_list, trigger_list, emulated=False):
         """
         data_trigger_list, data_list, trigger_list are lists of (verilog signals, width), i.e. (vast.Node, int).
         """
@@ -15,6 +18,7 @@ class XilinxILA(object):
         self.data_list = data_list
         self.trigger_list = trigger_list
         self.all_probes = self.data_trigger_list + self.data_list + self.trigger_list
+        self.emulated = emulated
 
     def build_param_list(self):
         self.param_list = []
@@ -27,7 +31,7 @@ class XilinxILA(object):
 
     def print_tcl_commands(self):
         commands = []
-        commands.append("create_ip -name ila -vendor xilinx.com -library ip -version 6.2 -module_name {}".format(ILA_MODULE_NAME))
+        commands.append("create_ip -name ila -vendor xilinx.com -library ip -version 6.2 -module_name {}".format(ILA_MODULE_NAME_PREFIX+str(XilinxILA.ILA_INSTANCE_CNT)))
         ila_props = [
             # enable "capture control" or "storage qualifier"
             ('CONFIG.C_EN_STRG_QUAL', 1),
@@ -51,7 +55,7 @@ class XilinxILA(object):
                 ])
         formatted_props = ["{} {{{}}}".format(k, v) for k, v in ila_props]
         commands.append("set_property -dict [list {}] [get_ips {}]".format(
-            ' '.join(formatted_props), ILA_MODULE_NAME))
+            ' '.join(formatted_props), ILA_MODULE_NAME_PREFIX+str(XilinxILA.ILA_INSTANCE_CNT)))
         with open('ila.tcl', 'w') as f:
             print('\n'.join(commands), file=f)
         full_tcl_path = os.path.realpath('ila.tcl')
@@ -65,6 +69,9 @@ class XilinxILA(object):
         self.build_port_list()
         self.print_tcl_commands()
         instance = vast.Instance(
-            ILA_MODULE_NAME, "ila_inst", self.port_list, self.param_list)
-        return vast.InstanceList(
-            ILA_MODULE_NAME, self.param_list, [instance])
+            ILA_MODULE_NAME_PREFIX+str(XilinxILA.ILA_INSTANCE_CNT),
+            "ila_inst_"+str(XilinxILA.ILA_INSTANCE_CNT), self.port_list, self.param_list)
+        r = vast.InstanceList(
+            ILA_MODULE_NAME_PREFIX+str(XilinxILA.ILA_INSTANCE_CNT), self.param_list, [instance])
+        XilinxILA.ILA_INSTANCE_CNT += 1
+        return r

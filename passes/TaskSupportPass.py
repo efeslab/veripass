@@ -282,6 +282,8 @@ class TaskSupportPass(PassBase):
     def getILAInstrumentation(self, clk, cond_wires, display_args, arg_widths):
         data_trigger_list = [(cond, 1) for cond in cond_wires]
         data_list = list(zip(display_args, arg_widths))
+        for arg, arg_width in data_list:
+            self.state.displayarg_width[self.astgen.visit(arg)] = arg_width
         ila_inst = XilinxILA(clk, data_trigger_list, data_list, [])
         return ila_inst.getInstance()
 
