@@ -58,12 +58,20 @@ class IntelSignalTapII(object):
     config is IntelSignalTapIIConfig
     """
 
-    def __init__(self, config):
+    SIGNALTAP_INSTANCE_CNT = 0
+
+    def __init__(self, config, emulated=False):
         port_list = config.build_port_list()
         param_list = config.build_param_list()
+        inst_name = "sld_signaltap_inst_" + str(IntelSignalTapII.SIGNALTAP_INSTANCE_CNT)
+        IntelSignalTapII.SIGNALTAP_INSTANCE_CNT += 1
+        mod_name = "sld_signaltap"
+        if emulated:
+            mod_name += "_emulated"
+            param_list.append(vast.ParamArg("INSTANCE_NAME", vast.StringConst(inst_name)))
         instance = vast.Instance(
-            "sld_signaltap", "sld_signaltap_inst", port_list, param_list)
-        self.instance = vast.InstanceList("sld_signaltap", param_list, [instance])
+            mod_name, inst_name, port_list, param_list)
+        self.instance = vast.InstanceList(mod_name, param_list, [instance])
 
     def getInstance(self):
         return self.instance

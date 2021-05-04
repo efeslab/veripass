@@ -43,6 +43,8 @@ def sv2v_entry(args, ast):
     if args.arrayboundcheck:
         pm.register(ArrayBoundaryCheckPass)
     if args.tasksupport:
+        if args.recording_emulated:
+            TaskSupportPass.RECORDING_EMULATED = True
         if args.tasksupport_mode == "SWEEP":
             TaskSupportPass.INSTRUMENT_TYPE = TaskSupportPass.INSTRUMENT_TYPE_SWEEP
             TaskSupportPass.INSTRUMENT_SWEEP_CFG_WIDTH = 2**args.tasksupport_log2width
@@ -64,3 +66,10 @@ def sv2v_entry(args, ast):
 
     #for name in pm.state.array_access_info:
     #    print(name, pm.state.array_access_info[name])
+
+    # An ugly hack that passes information across stages...
+    # since ast is the only thing that should be passed
+    if len(pm.state.condname2display) != 0:
+        ast.condname2display = pm.state.condname2display
+    if len(pm.state.displayarg_width) != 0:
+        ast.displayarg_width = pm.state.displayarg_width

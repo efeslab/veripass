@@ -34,6 +34,15 @@ def output_entry(args, ast):
     with open(args.output, 'w+') as f:
         f.write(rslt)
 
+    if hasattr(ast, "condname2display"):
+        with open(args.output+".displayinfo.txt", 'w+') as f:
+            for condname in ast.condname2display:
+                f.write("{} {}\n".format(condname, ast.condname2display[condname]))
+    if hasattr(ast, "displayarg_width"):
+        with open(args.output+".widthinfo.txt", 'w+') as f:
+            for varname in ast.displayarg_width:
+                f.write("{} {}\n".format(varname, ast.displayarg_width[varname]))
+
 parser = argparse.ArgumentParser(description="A collection of tools for FPGA debugging")
 parser.add_argument("--top", dest="top_module", help="top module name")
 input_parser = parser.add_mutually_exclusive_group(required=False)
@@ -44,6 +53,7 @@ output_parser = parser.add_mutually_exclusive_group(required=False)
 output_parser.add_argument("--config", type=str, help="A config file, one tool subcommand per line.")
 output_parser.add_argument("-o", dest="output", help="output path")
 parser.add_argument("--reset", default=None, type=str, help="Specify the reset identifier (e.g. RESET or !RESETN)")
+parser.add_argument("--recording-emulated", default=False, action="store_true", help="Use the emulated data recording implementation. (default=False)")
 parser.add_argument("--not-retag-synthesis", action="store_true", help="Do not retag \"synthesis\" metacommands. Should be used to generate synthesizable code. (default=False)")
 subparsers = parser.add_subparsers(title="Available FPGA debugging tools")
 sv2v_regParser(subparsers)
