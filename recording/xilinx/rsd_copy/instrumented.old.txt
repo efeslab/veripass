@@ -1,4 +1,0 @@
-common/altera/220model.v
-common/altera/altera_mf.v
-dcfifo_simple_model.v
-rsd_normal_ila.v
