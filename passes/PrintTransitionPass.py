@@ -83,7 +83,7 @@ class TransRecTarget:
         elif len(fields) == 4:
             # name:ptr:msb:lsb
             name = fields[0]
-            ptr = int(fields[1])
+            ptr = vast.IntConst(fields[1])
             msb = int(fields[2])
             lsb = int(fields[3])
         else:
