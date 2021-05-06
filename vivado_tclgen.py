@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 import argparse
-from jinja2 import Environment, FileSystemLoader
+from jinja2 import Template
 import json
 
 parser = argparse.ArgumentParser(
@@ -13,11 +13,11 @@ parser.add_argument("--source", dest="sources", type=str, required=True, action=
 parser.add_argument("--svsrc", dest="svsrcs", type=str, required=True, action="append", help="(required) Systemverilog source code")
 parser.add_argument("--top", type=str, required=True, help="(required) Top-Level Module name")
 parser.add_argument("--ila", type=str, default='', help="(optional) path to the ila.tcl")
-parser.add_argument("-o", dest="output", type=str, required=True,
-                    help="(required) Path to the output rendered tcl scripts")
+parser.add_argument("--timing-xdc", type=str, required=True, help="(required) path to the timing definition")
+parser.add_argument("-o", dest="output", type=str, required=True, help="(required) Path to the output rendered tcl scripts")
 args = parser.parse_args()
-env = Environment(loader=FileSystemLoader('./'))
-template = env.get_template(args.template)
+with open(args.template, "r") as f:
+    template = Template(f.read())
 config = {
     "PROJNAME": args.projname,
     "PROJPATH": args.projpath,
@@ -25,6 +25,7 @@ config = {
     "SV_SRCS": args.svsrcs,
     "TOP_MODULE": args.top,
     "ILA_TCL": args.ila, # '' means no needed, should be handled by template
+    "TIMING_XDC": args.timing_xdc,
 }
 rslt = template.render(config)
 with open(args.output, "w") as f:
