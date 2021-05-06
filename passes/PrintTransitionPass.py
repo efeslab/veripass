@@ -149,8 +149,6 @@ class PrintTransitionPass(PassBase):
             if sens is None:
                 print("Warning, skipping transition target {} due to no ref clock".format(target.getStr()))
                 continue
-            if not sens in lalways:
-                lalways[sens] = vast.Always(sens, vast.Block([]))
 
             # skip if the transition target is duplicated
             target_name = target.getFormatStr()
@@ -172,11 +170,12 @@ class PrintTransitionPass(PassBase):
 
             def_annotation = "TransRecTarget={}".format(target_name)
             ldefs.append(vast.Logic(target_name_delayed, target_width, annotation=def_annotation))
-            lalways[sens].statement.statements.append(
+            always_to_instrument = lalways.setdefault(sens, vast.Always(sens, vast.Block([])))
+            always_to_instrument.statement.statements.append(
                     vast.NonblockingSubstitution(
                         vast.Identifier(target_name_delayed),
                         target_ast))
-            lalways[sens].statement.statements.append(
+            always_to_instrument.statement.statements.append(
                 vast.IfStatement(
                     vast.NotEq(target_ast, vast.Identifier(target_name_delayed)),
                     vast.SingleStatement(vast.SystemCall("display", [
