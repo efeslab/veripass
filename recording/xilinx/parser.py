@@ -8,11 +8,11 @@ Created on Mon May  3 19:50:09 2021
 import sys
 
 count = int(sys.argv[1])
-
+name = sys.argv[2]
 
 fp_buffer = open('w_buffer.txt')
-fp_width = open('rsd_normal_ila.v.widthinfo.txt')
-fp_display = open('rsd_normal_ila.v.displayinfo.txt')
+fp_width = open(name+'.v.widthinfo.txt')
+fp_display = open(name +'.v.displayinfo.txt')
 fp_write = open('reconstruct.txt','w')
 
 
@@ -58,7 +58,7 @@ buffer_list = buffer_list[buffer_start:buffer_end]
 
 
 display_list = fp_display.read().split('\n')
-cond_num = len(display_list) - 1;
+cond_num = len(display_list) - 1
 display_list.pop()
 #print(cond_num)
 for i in range(cond_num): # each entry of this list means a display statement

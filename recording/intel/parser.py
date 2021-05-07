@@ -7,10 +7,11 @@ Created on Mon May  3 19:50:09 2021
 import sys
 
 count = int(sys.argv[1])
+name = sys.argv[2]
 
 fp_buffer = open('w_buffer.txt')
-fp_width = open('rsd_normal.v.widthinfo.txt')
-fp_display = open('rsd_normal.v.displayinfo.txt')
+fp_width = open(name +'.v.widthinfo.txt')
+fp_display = open(name +'.v.displayinfo.txt')
 fp_write = open('reconstruct.txt','w')
 
 buffer = fp_buffer.read()
