@@ -25,6 +25,7 @@ TEST_RTL_SIMLIB?=$(RTL_WORK_DIR)/V$(TOP_MODULE)__ALL.a
 TEST_BIN?= reed_solomon_decoder_test
 
 BUFFER_ARG= 0
+CASE_NAME = withtask
 
 all: verilator sw
 
@@ -45,7 +46,8 @@ sim:
 wave:
 	gtkwave *.fst >/dev/null 2>/dev/null &
 
-reconstruct: parser.py w_buffer.txt rsd_normal.v.displayinfo.txt rsd_normal.v.widthinfo.txt
-	python3 parser.py $(BUFFER_ARG)
+reconstruct: parser.py w_buffer.txt withtask.v.displayinfo.txt withtask.v.widthinfo.txt
+	python3 parser.py $(BUFFER_ARG) $(CASE_NAME)
+	python3 vcd_rebuilder.py $(CASE_NAME)
 
 

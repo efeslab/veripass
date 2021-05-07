@@ -27,6 +27,7 @@ TEST_BIN?= reed_solomon_decoder_test
 ILA_TCL= ila.tcl
 BUFFER_DEPTH = 8192
 BUFFER_ARG= 0
+CASE_NAME = rsd_normal_ila
 
 all: verilator sw
 
@@ -52,5 +53,6 @@ wave:
 	gtkwave *.fst >/dev/null 2>/dev/null &
 
 reconstruct: parser.py w_buffer.txt rsd_normal_ila.v.displayinfo.txt rsd_normal_ila.v.widthinfo.txt
-	python3 parser.py $(BUFFER_ARG)
+	python3 parser.py $(BUFFER_ARG) $(CASE_NAME)
+	python3 vcd_rebuilder.py $(CASE_NAME)
 
