@@ -77,7 +77,7 @@ def sv2v_entry(args, ast):
 
     # An ugly hack that passes information across stages...
     # since ast is the only thing that should be passed
-    if len(pm.state.condname2display) != 0:
+    if hasattr(pm.state, "condname2display") and len(pm.state.condname2display) != 0:
         ast.condname2display = pm.state.condname2display
-    if len(pm.state.displayarg_width) != 0:
+    if hasattr(pm.state, "displayarg_width") and len(pm.state.displayarg_width) != 0:
         ast.displayarg_width = pm.state.displayarg_width
