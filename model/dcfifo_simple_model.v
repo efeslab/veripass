@@ -15,8 +15,8 @@ module dcfifo_simple_model(
 	output logic ai_q_q
 );
 
-	parameter lpm_numwords;
-	parameter lpm_widthu;
+	parameter lpm_numwords=128;
+	parameter lpm_widthu=8;
 
 	logic valid_q_internal;
 	logic rdempty;
