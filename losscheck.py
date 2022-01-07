@@ -38,11 +38,34 @@ parser.add_argument("--source-valid", default=None, dest="source_valid", help="t
 parser.add_argument("--reset", default=None, dest="reset", help="the reset signal")
 parser.add_argument("--ignore-stop", default=False, dest="ignore_stop", action="store_true", help="ignore $stop")
 parser.add_argument("--recording-emulated", default=False, action="store_true", help="Use the emulated data recording implementation. (default=False)")
+parser.add_argument("--tasksupport-mode", default='STP', choices=['STP', 'SWEEPSTP', 'SWEEPILA', 'ILA'], help="in what mode to run TaskSupportPass (default is STP)")
+parser.add_argument("--tasksupport-log2width", default=None, type=int, help="The log2(width) of the fake data to instrument recording for")
+parser.add_argument("--tasksupport-log2depth", default=None, type=int, help="The log2(depth) of the fake data to instrument recording for")
 
 args = parser.parse_args()
 print("Top Module: {}".format(args.top_module))
 print("Desc File: {}".format(args.desc_file))
 print("Output Path: {}".format(args.output))
+
+if args.tasksupport_mode:
+    if args.tasksupport_mode == "SWEEPSTP":
+        TaskSupportPass.INSTRUMENT_TYPE = TaskSupportPass.INSTRUMENT_TYPE_SWEEPSTP
+        TaskSupportPass.INSTRUMENT_SWEEP_CFG_WIDTH = 2**args.tasksupport_log2width
+        TaskSupportPass.INSTRUMENT_SWEEP_CFG_DEPTH = 2**args.tasksupport_log2depth
+    elif args.tasksupport_mode == 'SWEEPILA':
+        TaskSupportPass.INSTRUMENT_TYPE = TaskSupportPass.INSTRUMENT_TYPE_SWEEPILA
+        TaskSupportPass.INSTRUMENT_SWEEP_CFG_WIDTH = 2**args.tasksupport_log2width
+        TaskSupportPass.INSTRUMENT_SWEEP_CFG_DEPTH = 2**args.tasksupport_log2depth
+    elif args.tasksupport_mode == "STP":
+        TaskSupportPass.INSTRUMENT_TYPE = TaskSupportPass.INSTRUMENT_TYPE_INTELSTP
+        if args.tasksupport_log2depth:
+            TaskSupportPass.INSTRUMENT_SAMPLE_DEPTH = 2**args.tasksupport_log2depth
+    elif args.tasksupport_mode == "ILA":
+        TaskSupportPass.INSTRUMENT_TYPE = TaskSupportPass.INSTRUMENT_TYPE_XILINXILA
+        if args.tasksupport_log2depth:
+            TaskSupportPass.INSTRUMENT_SAMPLE_DEPTH = 2**args.tasksupport_log2depth
+    else:
+        raise NotImplementedError("Unknown TaskSupport Mode")
 
 assert(args.source and args.sink and args.source_valid and args.reset)
 

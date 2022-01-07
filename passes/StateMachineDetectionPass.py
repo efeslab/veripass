@@ -212,6 +212,8 @@ class StateMachineDetectionPass(PassBase):
         for cand in self.state.fsm_candidate:
             termname = util.toTermname(self.state.top_module + "." + cand.name)
             v = DFSelfControlDepVisitor(terms, binddict, termname)
+            if termname not in binddict:
+                continue
             for i in binddict[termname]:
                 r = v.visit(i.tree)
                 if r:
